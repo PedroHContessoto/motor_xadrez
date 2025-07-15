@@ -8,11 +8,16 @@ description = "High-performance chess engine written in Rust"
 [dependencies]
 rayon = "1.8"
 lazy_static = "1.4"
-candle-core = { version = "0.9", features = ["cuda"] }
-candle-nn = { version = "0.9", features = ["cuda"] }
+candle-core = "0.9"
+candle-nn = "0.9"
 ndarray = "0.16"
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
+
+# Optional CUDA support (only enable if CUDA toolkit is properly installed)
+[features]
+default = []
+cuda = ["candle-core/cuda", "candle-nn/cuda"]
 
 [profile.release]
 opt-level = 3

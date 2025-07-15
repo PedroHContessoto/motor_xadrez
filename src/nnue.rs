@@ -64,19 +64,41 @@ pub struct NNUEConfig {
 
 impl Default for NNUEConfig {
     fn default() -> Self {
+        // Check for CUDA availability safely
+        let has_cuda = cfg!(feature = "cuda") && Self::check_cuda_available();
+        
         NNUEConfig {
-            use_gpu: Device::cuda_if_available(0).is_ok(),
+            use_gpu: has_cuda,
             precision: "f32".to_string(),
-            batch_size: if Device::cuda_if_available(0).is_ok() { 256 } else { 32 },
+            batch_size: if has_cuda { 256 } else { 32 },
             device_id: 0,
         }
     }
 }
 
 impl NNUEConfig {
+    /// Check if CUDA is available (compile-time and runtime check)
+    fn check_cuda_available() -> bool {
+        #[cfg(feature = "cuda")]
+        {
+            Device::cuda_if_available(0).is_ok()
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            false
+        }
+    }
+    
     pub fn get_device(&self) -> Result<Device> {
-        if self.use_gpu {
-            Device::cuda_if_available(self.device_id)
+        if self.use_gpu && cfg!(feature = "cuda") {
+            #[cfg(feature = "cuda")]
+            {
+                Device::cuda_if_available(self.device_id)
+            }
+            #[cfg(not(feature = "cuda"))]
+            {
+                Ok(Device::Cpu)
+            }
         } else {
             Ok(Device::Cpu)
         }
