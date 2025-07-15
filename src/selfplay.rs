@@ -1,7 +1,7 @@
 // Self-play system for training NNUE
 use crate::board::Board;
 use crate::types::*;
-use crate::nnue::{NNUEEvaluator, NNUETrainer, GameResult, game_result_to_training_value};
+use crate::nnue::{NNUEEvaluator, NNUETrainer, NNUEConfig, GameResult, game_result_to_training_value};
 use rand::Rng;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
@@ -17,18 +17,26 @@ pub struct SelfPlayConfig {
     pub batch_size: usize,
     pub curriculum_learning: bool,
     pub quiet_positions_only: bool,
+    pub nnue_config: NNUEConfig,
+    pub gpu_batch_size: usize,
 }
 
 impl Default for SelfPlayConfig {
     fn default() -> Self {
+        let nnue_config = NNUEConfig::default();
+        let batch_size = nnue_config.batch_size;
+        let gpu_batch_size = if nnue_config.use_gpu { 512 } else { 64 };
+        
         SelfPlayConfig {
             games_per_iteration: 1000,
             max_game_length: 400,
             exploration_rate: 0.1,
             temperature: 1.0,
-            batch_size: 32,
+            batch_size,
             curriculum_learning: true,
             quiet_positions_only: false, // Começa false, será ativado nas primeiras iterações
+            nnue_config,
+            gpu_batch_size,
         }
     }
 }
@@ -52,13 +60,16 @@ impl SelfPlayEngine {
     pub fn new(config: SelfPlayConfig) -> candle_core::Result<Self> {
         let num_threads = rayon::current_num_threads();
         
-        // Criar pool de evaluators (um por thread)
+        // Criar pool de evaluators com GPU config (um por thread)
         let mut evaluators = Vec::with_capacity(num_threads);
         for _ in 0..num_threads {
-            evaluators.push(Arc::new(NNUEEvaluator::new()?));
+            evaluators.push(Arc::new(NNUEEvaluator::new_with_config(config.nnue_config.clone())?));
         }
         
         let trainer = Arc::new(Mutex::new(NNUETrainer::new()?));
+        
+        println!("SelfPlayEngine initialized with {} threads, GPU: {}", 
+                num_threads, config.nnue_config.use_gpu);
         
         Ok(SelfPlayEngine {
             evaluators,
@@ -222,59 +233,54 @@ impl SelfPlayEngine {
         self.batch_evaluate_moves_with_evaluator(board, legal_moves, evaluator)
     }
     
-    /// Avalia todos os movimentos em batch com evaluator específico
+    /// Avalia todos os movimentos em batch com evaluator específico (GPU optimized)
     fn batch_evaluate_moves_with_evaluator(&self, board: &Board, legal_moves: &[Move], evaluator: Arc<NNUEEvaluator>) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         
-        // Preparar todas as features dos movimentos
-        let mut batch_features = Vec::with_capacity(legal_moves.len());
-        
-        for &mv in legal_moves {
-            let mut temp_board = *board;
-            temp_board.make_move(mv);
-            
-            let features = evaluator.board_to_features(&temp_board)
-                .map_err(|e| format!("Feature extraction error: {}", e))?;
-            batch_features.push(features);
+        if legal_moves.is_empty() {
+            return Ok(Vec::new());
         }
         
-        // Batch forward pass
-        if batch_features.len() > 1 {
-            // Use batch processing para múltiplos movimentos
-            let batch_tensor = candle_core::Tensor::stack(&batch_features, 0)
-                .map_err(|e| format!("Tensor stack error: {}", e))?;
+        // Use GPU batch evaluation for efficiency
+        if legal_moves.len() >= 4 && self.config.nnue_config.use_gpu {
+            // Prepare all board positions after moves
+            let mut temp_boards = Vec::with_capacity(legal_moves.len());
+            for &mv in legal_moves {
+                let mut temp_board = *board;
+                temp_board.make_move(mv);
+                temp_boards.push(temp_board);
+            }
             
-            let batch_output = evaluator.network.forward(&batch_tensor)
-                .map_err(|e| format!("Batch forward error: {}", e))?;
+            // GPU batch evaluation
+            let batch_scores = evaluator.evaluate_batch(&temp_boards)
+                .map_err(|e| format!("GPU batch evaluation error: {}", e))?;
             
-            // Squeeze para remover dimensões extras e converter para scores
-            let squeezed_output = batch_output.squeeze(2)?.squeeze(1)?;
-            let batch_scores = squeezed_output.to_vec1::<f32>()
-                .map_err(|e| format!("Tensor conversion error: {}", e))?;
-            
+            // Adjust scores for side to move
             let mut scores = Vec::with_capacity(legal_moves.len());
-            for (_i, &raw_score) in batch_scores.iter().enumerate() {
-                let centipawn_score = (raw_score - 0.5) * 2000.0;
-                
-                // Inverter score se é vez do oponente
+            for &raw_score in &batch_scores {
                 let adjusted_score = if board.to_move == Color::White { 
-                    centipawn_score 
+                    raw_score 
                 } else { 
-                    -centipawn_score 
+                    -raw_score 
                 };
                 scores.push(adjusted_score);
             }
             
             Ok(scores)
         } else {
-            // Single move - fallback para método original
-            let score = evaluator.evaluate(&{
+            // Fallback to single evaluations for small batches or CPU
+            let mut scores = Vec::with_capacity(legal_moves.len());
+            for &mv in legal_moves {
                 let mut temp_board = *board;
-                temp_board.make_move(legal_moves[0]);
-                temp_board
-            }).map_err(|e| format!("Single evaluation error: {}", e))?;
+                temp_board.make_move(mv);
+                
+                let score = evaluator.evaluate(&temp_board)
+                    .map_err(|e| format!("Single evaluation error: {}", e))?;
+                
+                let adjusted_score = if board.to_move == Color::White { score } else { -score };
+                scores.push(adjusted_score);
+            }
             
-            let adjusted_score = if board.to_move == Color::White { score } else { -score };
-            Ok(vec![adjusted_score])
+            Ok(scores)
         }
     }
     

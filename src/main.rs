@@ -1,6 +1,6 @@
 // Motor Xadrez - High-Performance Chess Engine with NNUE
 
-use motor_xadrez::{Board, Color, PieceKind, Evaluator, NNUEEvaluator, run_selfplay_training};
+use motor_xadrez::{Board, Color, PieceKind, Evaluator, NNUEEvaluator, NNUEConfig, SelfPlayConfig, run_selfplay_training};
 use std::env;
 use std::sync::Arc;
 
@@ -50,7 +50,12 @@ fn run_demo() {
     
     // Testar avaliação NNUE
     println!("\n🧠 Avaliação NNUE:");
-    match NNUEEvaluator::new() {
+    let nnue_config = NNUEConfig::default();
+    println!("  GPU disponível: {}", nnue_config.use_gpu);
+    println!("  Precisão: {}", nnue_config.precision);
+    println!("  Batch size: {}", nnue_config.batch_size);
+    
+    match NNUEEvaluator::new_with_config(nnue_config) {
         Ok(nnue_evaluator) => {
             let nnue_arc = Arc::new(nnue_evaluator);
             let nnue_evaluator = Evaluator::new_nnue_main(nnue_arc.clone());

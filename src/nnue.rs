@@ -1,9 +1,10 @@
 // NNUE (Efficiently Updatable Neural Network) implementation for chess evaluation
 use crate::types::*;
 use crate::board::Board;
-use candle_core::{Device, Result, Tensor};
+use candle_core::{Device, Result, Tensor, DType};
 use candle_nn::{Linear, VarBuilder, VarMap, Module, Optimizer, AdamW, ops, loss};
 use candle_core::Result as CandleResult;
+use serde::{Deserialize, Serialize};
 
 // NNUE architecture constants - True HalfKP with exact Stockfish mapping
 const PIECE_TYPES: usize = 10; // 5 non-king * 2 colors (0-4 white, 5-9 black)
@@ -52,6 +53,44 @@ static PSQ_PAWN: [[usize; 64]; 2] = {
     tables
 };
 
+/// GPU Configuration for NNUE
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NNUEConfig {
+    pub use_gpu: bool,
+    pub precision: String, // "f32", "f16", "bf16"
+    pub batch_size: usize,
+    pub device_id: usize,
+}
+
+impl Default for NNUEConfig {
+    fn default() -> Self {
+        NNUEConfig {
+            use_gpu: Device::cuda_if_available(0).is_ok(),
+            precision: "f32".to_string(),
+            batch_size: if Device::cuda_if_available(0).is_ok() { 256 } else { 32 },
+            device_id: 0,
+        }
+    }
+}
+
+impl NNUEConfig {
+    pub fn get_device(&self) -> Result<Device> {
+        if self.use_gpu {
+            Device::cuda_if_available(self.device_id)
+        } else {
+            Ok(Device::Cpu)
+        }
+    }
+    
+    pub fn get_dtype(&self) -> DType {
+        match self.precision.as_str() {
+            "f16" => DType::F16,
+            "bf16" => DType::BF16,
+            _ => DType::F32,
+        }
+    }
+}
+
 // Lazy Accumulator for incremental updates
 #[derive(Debug, Clone)]
 pub struct LazyAccumulator {
@@ -86,6 +125,7 @@ impl LazyAccumulator {
 #[derive(Debug, Clone)]
 pub struct NNUENetwork {
     device: Device,
+    dtype: DType,
     feature_transformer: Linear,
     hidden_layer1: Linear,
     hidden_layer2: Linear,
@@ -94,8 +134,12 @@ pub struct NNUENetwork {
 
 impl NNUENetwork {
     pub fn new(device: Device) -> Result<Self> {
+        Self::new_with_config(device, DType::F32)
+    }
+    
+    pub fn new_with_config(device: Device, dtype: DType) -> Result<Self> {
         let varmap = VarMap::new();
-        let vb = VarBuilder::from_varmap(&varmap, candle_core::DType::F32, &device);
+        let vb = VarBuilder::from_varmap(&varmap, dtype, &device);
         
         let feature_transformer = candle_nn::linear(FEATURE_SIZE, HIDDEN_SIZE, vb.pp("feature_transformer"))?;
         let hidden_layer1 = candle_nn::linear(HIDDEN_SIZE, HIDDEN_SIZE, vb.pp("hidden1"))?;
@@ -104,6 +148,7 @@ impl NNUENetwork {
         
         Ok(NNUENetwork {
             device,
+            dtype,
             feature_transformer,
             hidden_layer1,
             hidden_layer2,
@@ -129,6 +174,8 @@ impl NNUENetwork {
 pub struct NNUEEvaluator {
     pub network: NNUENetwork, // Tornar público para batch evaluation
     device: Device,
+    dtype: DType,
+    config: NNUEConfig,
     // Lazy accumulators for incremental updates
     pub white_accumulator: LazyAccumulator,
     pub black_accumulator: LazyAccumulator,
@@ -136,12 +183,22 @@ pub struct NNUEEvaluator {
 
 impl NNUEEvaluator {
     pub fn new() -> Result<Self> {
-        let device = Device::Cpu;
-        let network = NNUENetwork::new(device.clone())?;
+        let config = NNUEConfig::default();
+        Self::new_with_config(config)
+    }
+    
+    pub fn new_with_config(config: NNUEConfig) -> Result<Self> {
+        let device = config.get_device()?;
+        let dtype = config.get_dtype();
+        let network = NNUENetwork::new_with_config(device.clone(), dtype)?;
+        
+        println!("NNUE initialized: device={:?}, dtype={:?}", device, dtype);
         
         Ok(NNUEEvaluator {
             network,
             device,
+            dtype,
+            config,
             white_accumulator: LazyAccumulator::new(),
             black_accumulator: LazyAccumulator::new(),
         })
@@ -189,7 +246,13 @@ impl NNUEEvaluator {
             }
         }
         
-        Tensor::from_vec(features, (1, FEATURE_SIZE), &self.device)
+        let tensor = Tensor::from_vec(features, (1, FEATURE_SIZE), &self.device)?;
+        // Convert to configured dtype for mixed precision
+        if self.dtype != DType::F32 {
+            tensor.to_dtype(self.dtype)
+        } else {
+            Ok(tensor)
+        }
     }
 
     fn get_piece_type(&self, board: &Board, square_bb: u64) -> usize {
@@ -248,6 +311,38 @@ impl NNUEEvaluator {
         // Apply sigmoid to get probability, then convert to centipawns
         let probability = 1.0 / (1.0 + (-logits_score).exp());
         Ok((probability - 0.5) * 2000.0)
+    }
+    
+    /// Batch evaluation for GPU acceleration 
+    pub fn evaluate_batch(&self, boards: &[Board]) -> Result<Vec<f32>> {
+        if boards.is_empty() {
+            return Ok(Vec::new());
+        }
+        
+        // Collect all features into a single batch tensor
+        let mut all_features = Vec::new();
+        for board in boards {
+            let features = self.board_to_features(board)?;
+            all_features.push(features);
+        }
+        
+        // Stack into batch tensor [batch_size, FEATURE_SIZE]
+        let batch_tensor = Tensor::stack(&all_features, 0)?;
+        
+        // Forward pass through network
+        let batch_output = self.network.forward(&batch_tensor)?;
+        
+        // Convert to scores
+        let batch_scores = batch_output.to_vec2::<f32>()?;
+        let mut scores = Vec::with_capacity(boards.len());
+        
+        for row in batch_scores {
+            let logits_score = row[0];
+            let probability = 1.0 / (1.0 + (-logits_score).exp());
+            scores.push((probability - 0.5) * 2000.0);
+        }
+        
+        Ok(scores)
     }
     
     /// Full incremental update method for lazy evaluation (+3x performance)
