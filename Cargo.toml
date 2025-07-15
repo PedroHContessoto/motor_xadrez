@@ -1,7 +1,17 @@
 [package]
 name = "motor_xadrez"
-version = "0.1.0"
-edition = "2024"
+version = "1.0.0"
+edition = "2021"
+authors = ["Pedro Contessoto"]
+description = "High-performance chess engine written in Rust"
 
 [dependencies]
 rayon = "1.8"
+
+[profile.release]
+opt-level = 3
+debug = false
+overflow-checks = false
+lto = true
+codegen-units = 1
+panic = "abort"

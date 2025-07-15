@@ -3,12 +3,12 @@
 
 use crate::{board::Board, types::{Move, Color, PieceKind, Bitboard}};
 
-/// Máscaras pré-calculadas para raios de bispo
-static BISHOP_MASKS: [Bitboard; 64] = generate_bishop_masks();
-/// Máscaras pré-calculadas para raios de torre  
-static ROOK_MASKS: [Bitboard; 64] = generate_rook_masks();
+// Placeholder for future magic bitboard optimization
+// static BISHOP_MASKS: [Bitboard; 64] = generate_bishop_masks();
+// static ROOK_MASKS: [Bitboard; 64] = generate_rook_masks();
 
-/// Gera máscaras de ataque para bispos (exclui bordas)
+/// Gera máscaras de ataque para bispos (exclui bordas) - Placeholder for magic bitboards
+#[allow(dead_code)]
 const fn generate_bishop_masks() -> [Bitboard; 64] {
     let mut masks = [0u64; 64];
     let mut square = 0;
@@ -64,7 +64,8 @@ const fn generate_bishop_masks() -> [Bitboard; 64] {
     masks
 }
 
-/// Gera máscaras de ataque para torres (exclui bordas)
+/// Gera máscaras de ataque para torres (exclui bordas) - Placeholder for magic bitboards
+#[allow(dead_code)]
 const fn generate_rook_masks() -> [Bitboard; 64] {
     let mut masks = [0u64; 64];
     let mut square = 0;

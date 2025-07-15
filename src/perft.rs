@@ -16,7 +16,7 @@ pub fn run_perft(board: &Board, depth: u8) {
 }
 
 /// Função recursiva que percorre a árvore de lances.
-fn perft_driver(board: &Board, depth: u8) -> u64 {
+pub fn perft_driver(board: &Board, depth: u8) -> u64 {
     if depth == 0 {
         return 1; // Chegamos a uma folha da árvore de busca.
     }
