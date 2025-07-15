@@ -638,4 +638,48 @@ impl Board {
         }
         false
     }
+    
+    /// Flip colors for NNUE perspective (always from white view)
+    pub fn flip_colors(&mut self) {
+        // Swap white and black pieces
+        std::mem::swap(&mut self.white_pieces, &mut self.black_pieces);
+        
+        // Flip all bitboards vertically (ranks 1-8 become 8-1)
+        self.white_pieces = self.flip_bitboard_vertical(self.white_pieces);
+        self.black_pieces = self.flip_bitboard_vertical(self.black_pieces);
+        self.pawns = self.flip_bitboard_vertical(self.pawns);
+        self.knights = self.flip_bitboard_vertical(self.knights);
+        self.bishops = self.flip_bitboard_vertical(self.bishops);
+        self.rooks = self.flip_bitboard_vertical(self.rooks);
+        self.queens = self.flip_bitboard_vertical(self.queens);
+        self.kings = self.flip_bitboard_vertical(self.kings);
+        
+        // Flip side to move
+        self.to_move = match self.to_move {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        };
+        
+        // Flip castling rights by swapping bits
+        let new_castling = ((self.castling_rights & 0b0011) << 2) | ((self.castling_rights & 0b1100) >> 2);
+        self.castling_rights = new_castling;
+        
+        // Flip en passant square
+        if let Some(ep_square) = self.en_passant_target {
+            self.en_passant_target = Some(ep_square ^ 56); // Flip rank
+        }
+        
+        // Recompute zobrist hash
+        self.zobrist_hash = self.compute_zobrist_hash();
+    }
+    
+    /// Flip a bitboard vertically (rank 1 <-> rank 8)
+    fn flip_bitboard_vertical(&self, bb: u64) -> u64 {
+        let mut result = 0u64;
+        for rank in 0..8 {
+            let rank_bits = (bb >> (rank * 8)) & 0xFF;
+            result |= rank_bits << ((7 - rank) * 8);
+        }
+        result
+    }
 }
