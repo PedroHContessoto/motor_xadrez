@@ -7,6 +7,7 @@ description = "High-performance chess engine written in Rust"
 
 [dependencies]
 rayon = "1.8"
+lazy_static = "1.4"
 
 [profile.release]
 opt-level = 3

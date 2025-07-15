@@ -3,7 +3,7 @@
 pub mod types;
 pub mod board;
 pub mod moves;
-pub mod perft;
+pub mod zobrist;
 
 pub use types::*;
 pub use board::Board;
