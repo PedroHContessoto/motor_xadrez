@@ -235,8 +235,7 @@ impl Board {
         let moving_piece_kind = self.get_piece_on_square(mv.from).unwrap();
 
         // --- LÓGICA DE MOVIMENTO ---
-        // Remove a peça da casa de origem (usando XOR para eficiência)
-        let move_bb = from_bb ^ to_bb; // Note: use ^ para toggle se não houver promoção/captura, mas ajuste para casos especiais
+        // Remove a peça da casa de origem
         if moving_color == Color::White {
             self.white_pieces &= !from_bb;
         } else {
@@ -624,19 +623,284 @@ impl Board {
     pub fn generate_legal_moves(&self) -> Vec<Move> {
         let pseudo_legal = self.generate_all_moves();
         pseudo_legal.into_iter()
-            .filter(|&mv| {
-                let mut temp = *self;
-                temp.make_move(mv);
-                !temp.is_king_in_check(self.to_move)
-            })
+            .filter(|&mv| self.is_legal_move_fast(mv))
             .collect()
     }
 
-    /// Verifica se um movimento é legal
+    /// Verifica se um movimento é legal (versão otimizada)
     pub fn is_legal_move(&self, mv: Move) -> bool {
+        self.is_legal_move_fast(mv)
+    }
+
+    /// Versão rápida de validação de legalidade - evita make_move quando possível
+    pub fn is_legal_move_fast(&self, mv: Move) -> bool {
+        // 1. Validação básica de coordenadas
+        if mv.from >= 64 || mv.to >= 64 {
+            return false;
+        }
+
+        // 2. Movimento para a mesma casa é inválido
+        if mv.from == mv.to {
+            return false;
+        }
+
+        // 3. Verifica se há uma peça nossa na casa de origem
+        let from_bb = 1u64 << mv.from;
+        let our_pieces = if self.to_move == Color::White { self.white_pieces } else { self.black_pieces };
+        if (from_bb & our_pieces) == 0 {
+            return false;
+        }
+
+        // 4. Verifica se não estamos capturando nossas próprias peças
+        let to_bb = 1u64 << mv.to;
+        if (to_bb & our_pieces) != 0 {
+            return false;
+        }
+
+        // 5. Obtém o tipo da peça para validações específicas
+        let piece_kind = self.get_piece_on_square(mv.from);
+        if piece_kind.is_none() {
+            return false; // Não deveria acontecer se validação #3 passou
+        }
+        let piece_kind = piece_kind.unwrap();
+
+        // 6. Validação de promoção - só peões podem promover e só nos ranks corretos
+        if let Some(promotion_piece) = mv.promotion {
+            if piece_kind != PieceKind::Pawn {
+                return false; // Só peões promovem
+            }
+            let target_rank = mv.to / 8;
+            let is_promotion_rank = match self.to_move {
+                Color::White => target_rank == 7, // 8ª rank
+                Color::Black => target_rank == 0, // 1ª rank
+            };
+            if !is_promotion_rank {
+                return false; // Promoção só nos ranks corretos
+            }
+            // Verifica se peça de promoção é válida (não rei ou peão)
+            if matches!(promotion_piece, PieceKind::King | PieceKind::Pawn) {
+                return false;
+            }
+        }
+
+        // 7. Validação de en passant
+        if mv.is_en_passant {
+            if piece_kind != PieceKind::Pawn {
+                return false; // Só peões fazem en passant
+            }
+            if self.en_passant_target != Some(mv.to) {
+                return false; // Só na casa correta de en passant
+            }
+        }
+
+        // 8. Validação específica para roque
+        if mv.is_castling {
+            if piece_kind != PieceKind::King {
+                return false; // Só rei pode fazer roque
+            }
+            return self.is_castling_legal(mv);
+        }
+
+        // 9. Validação básica de movimento para o tipo de peça
+        if !self.is_valid_piece_movement(piece_kind, mv) {
+            return false;
+        }
+
+        // 10. Para outros movimentos, verifica se após o movimento o rei fica em xeque
         let mut temp = *self;
         temp.make_move(mv);
         !temp.is_king_in_check(self.to_move)
+    }
+
+    /// Valida se o movimento é válido para o tipo de peça (verificação básica de padrão)
+    fn is_valid_piece_movement(&self, piece_kind: PieceKind, mv: Move) -> bool {
+        let from_rank = mv.from / 8;
+        let from_file = mv.from % 8;
+        let to_rank = mv.to / 8;
+        let to_file = mv.to % 8;
+        
+        let rank_diff = (to_rank as i8 - from_rank as i8).abs();
+        let file_diff = (to_file as i8 - from_file as i8).abs();
+
+        match piece_kind {
+            PieceKind::Pawn => {
+                // Validação básica de peão (movimento detalhado é feito na geração)
+                let direction = if self.to_move == Color::White { 1 } else { -1 };
+                let expected_rank = (from_rank as i8 + direction) as u8;
+                
+                // Movimento de uma casa ou duas casas da posição inicial
+                if to_rank == expected_rank || 
+                   (to_rank == (from_rank as i8 + 2 * direction) as u8 && 
+                    ((self.to_move == Color::White && from_rank == 1) || 
+                     (self.to_move == Color::Black && from_rank == 6))) {
+                    return true;
+                }
+                
+                // Capturas diagonais
+                if rank_diff == 1 && file_diff == 1 {
+                    return true;
+                }
+                
+                false
+            },
+            PieceKind::Knight => {
+                // Movimento em L: (2,1) ou (1,2)
+                (rank_diff == 2 && file_diff == 1) || (rank_diff == 1 && file_diff == 2)
+            },
+            PieceKind::Bishop => {
+                // Movimento diagonal
+                rank_diff == file_diff && rank_diff > 0
+            },
+            PieceKind::Rook => {
+                // Movimento horizontal ou vertical
+                (rank_diff == 0 && file_diff > 0) || (file_diff == 0 && rank_diff > 0)
+            },
+            PieceKind::Queen => {
+                // Combinação de bispo e torre
+                (rank_diff == file_diff && rank_diff > 0) || 
+                ((rank_diff == 0 && file_diff > 0) || (file_diff == 0 && rank_diff > 0))
+            },
+            PieceKind::King => {
+                // Uma casa em qualquer direção (exceto roque que é tratado separadamente)
+                rank_diff <= 1 && file_diff <= 1 && (rank_diff > 0 || file_diff > 0)
+            },
+        }
+    }
+
+    /// Validação específica para movimentos de roque
+    fn is_castling_legal(&self, mv: Move) -> bool {
+        let our_color = self.to_move;
+        let enemy_color = !our_color;
+        
+        // Verifica se ainda tem direito de rocar
+        let (king_side_bit, queen_side_bit) = if our_color == Color::White {
+            (0b0001, 0b0010)
+        } else {
+            (0b0100, 0b1000)
+        };
+
+        let is_king_side = matches!(mv.to, 6 | 62); // g1 ou g8
+        let is_queen_side = matches!(mv.to, 2 | 58); // c1 ou c8
+
+        if is_king_side && (self.castling_rights & king_side_bit) == 0 {
+            return false;
+        }
+        if is_queen_side && (self.castling_rights & queen_side_bit) == 0 {
+            return false;
+        }
+
+        // Verifica se rei está em xeque (não pode rocar em xeque)
+        if self.is_king_in_check(our_color) {
+            return false;
+        }
+
+        // Verifica se casas intermediárias estão vazias e não são atacadas
+        let (squares_to_check, squares_must_be_empty) = match mv.to {
+            6 => (vec![5, 6], vec![5, 6]), // g1: f1, g1
+            2 => (vec![2, 3], vec![1, 2, 3]), // c1: b1, c1, d1 (b1 só vazio)
+            62 => (vec![61, 62], vec![61, 62]), // g8: f8, g8
+            58 => (vec![58, 59], vec![57, 58, 59]), // c8: b8, c8, d8 (b8 só vazio)
+            _ => return false,
+        };
+
+        // Verifica se casas estão vazias
+        let all_pieces = self.white_pieces | self.black_pieces;
+        for &sq in &squares_must_be_empty {
+            if (all_pieces & (1u64 << sq)) != 0 {
+                return false;
+            }
+        }
+
+        // Verifica se casas por onde o rei passa não são atacadas
+        for &sq in &squares_to_check {
+            if self.is_square_attacked_by(sq, enemy_color) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Valida consistência do estado do tabuleiro (útil para debug)
+    pub fn validate_board_state(&self) -> Result<(), String> {
+        // 1. Verifica se bitboards não se sobrepõem entre cores
+        if (self.white_pieces & self.black_pieces) != 0 {
+            return Err("White and black pieces overlap".to_string());
+        }
+
+        // 2. Verifica se todos os bitboards de peças estão contidos nas cores
+        let all_pieces = self.pawns | self.knights | self.bishops | self.rooks | self.queens | self.kings;
+        let colored_pieces = self.white_pieces | self.black_pieces;
+        if (all_pieces & !colored_pieces) != 0 {
+            return Err("Piece exists without color".to_string());
+        }
+
+        // 3. Verifica se há exatamente um rei de cada cor
+        let white_kings = (self.kings & self.white_pieces).count_ones();
+        let black_kings = (self.kings & self.black_pieces).count_ones();
+        if white_kings != 1 {
+            return Err(format!("White should have exactly 1 king, found {}", white_kings));
+        }
+        if black_kings != 1 {
+            return Err(format!("Black should have exactly 1 king, found {}", black_kings));
+        }
+
+        // 4. Verifica se peões não estão nos ranks de promoção (1ª e 8ª fileiras)
+        let promotion_ranks = 0xFF | 0xFF00000000000000;  // Ranks 1 e 8
+        if (self.pawns & promotion_ranks) != 0 {
+            return Err("Pawns found on promotion ranks".to_string());
+        }
+
+        // 5. Verifica se en passant target é válido
+        if let Some(ep_square) = self.en_passant_target {
+            if ep_square >= 64 {
+                return Err("Invalid en passant square".to_string());
+            }
+            let ep_rank = ep_square / 8;
+            let expected_rank = if self.to_move == Color::White { 5 } else { 2 }; // 6ª e 3ª fileiras
+            if ep_rank != expected_rank {
+                return Err("En passant square on wrong rank".to_string());
+            }
+        }
+
+        // 6. Verifica se direitos de roque são consistentes
+        if (self.castling_rights & 0b0001) != 0 { // K branco
+            if (self.kings & self.white_pieces & (1u64 << 4)) == 0 { // Rei branco em e1
+                return Err("White king castling right but king not on e1".to_string());
+            }
+            if (self.rooks & self.white_pieces & (1u64 << 7)) == 0 { // Torre em h1
+                return Err("White kingside castling right but no rook on h1".to_string());
+            }
+        }
+        
+        if (self.castling_rights & 0b0010) != 0 { // Q branco
+            if (self.kings & self.white_pieces & (1u64 << 4)) == 0 {
+                return Err("White king castling right but king not on e1".to_string());
+            }
+            if (self.rooks & self.white_pieces & (1u64 << 0)) == 0 { // Torre em a1
+                return Err("White queenside castling right but no rook on a1".to_string());
+            }
+        }
+
+        if (self.castling_rights & 0b0100) != 0 { // k preto
+            if (self.kings & self.black_pieces & (1u64 << 60)) == 0 { // Rei preto em e8
+                return Err("Black king castling right but king not on e8".to_string());
+            }
+            if (self.rooks & self.black_pieces & (1u64 << 63)) == 0 { // Torre em h8
+                return Err("Black kingside castling right but no rook on h8".to_string());
+            }
+        }
+
+        if (self.castling_rights & 0b1000) != 0 { // q preto
+            if (self.kings & self.black_pieces & (1u64 << 60)) == 0 {
+                return Err("Black king castling right but king not on e8".to_string());
+            }
+            if (self.rooks & self.black_pieces & (1u64 << 56)) == 0 { // Torre em a8
+                return Err("Black queenside castling right but no rook on a8".to_string());
+            }
+        }
+
+        Ok(())
     }
 
     /// Retorna o número de peças de cada tipo para avaliação

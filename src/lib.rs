@@ -7,6 +7,7 @@ pub mod zobrist;
 pub mod evaluation;
 pub mod search;
 pub mod transposition;
+pub mod opening_book;
 
 pub use types::*;
 pub use board::Board;

@@ -7,6 +7,8 @@ pub struct SearchContext {
     pub nodes_searched: u64,
     // Novo para Fase 2: Rastrear PV para time management
     pub prev_best_move: Option<Move>,
+    // Stop flag para timeout graceful
+    pub should_stop: bool,
 }
 
 impl SearchContext {
@@ -16,6 +18,7 @@ impl SearchContext {
             history: [[0; 64]; 64],
             nodes_searched: 0,
             prev_best_move: None,
+            should_stop: false,
         }
     }
 
@@ -42,5 +45,10 @@ impl SearchContext {
 
     pub fn get_history_score(&self, mv: Move) -> i32 {
         self.history[mv.from as usize][mv.to as usize]
+    }
+    
+    pub fn get_last_move(&self) -> Option<Move> {
+        // Simplified implementation - can be expanded later
+        None
     }
 }

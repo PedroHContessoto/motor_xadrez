@@ -13,27 +13,27 @@ use crate::{board::Board, types::Color};
 /// Função principal de avaliação (interface pública)
 pub fn evaluate(board: &Board) -> i32 {
     let game_phase = game_phase::detect_game_phase(board);
-    
+
     let white_score = evaluate_color(board, Color::White, &game_phase);
     let black_score = evaluate_color(board, Color::Black, &game_phase);
-    
+
     let mut final_score = white_score - black_score;
-    
+
     // Bônus por tempo (encoraja jogadas mais rápidas quando vantajoso)
     if final_score.abs() < 50 {
         final_score += evaluate_tempo(board);
     }
-    
+
     // Ajuste dinâmico baseado na fase
     let phase_multiplier = match game_phase {
         game_phase::GamePhase::Opening => 0.8,
         game_phase::GamePhase::Middlegame => 1.2,
         game_phase::GamePhase::Endgame => 1.0,
     };
-    
+
     let adjusted_score = (final_score as f32 * phase_multiplier) as i32;
     let absolute_score = adjusted_score.clamp(-10000, 10000);
-    
+
     // Retorna relativo ao jogador atual (positivo = jogador atual melhor)
     if board.to_move == Color::White {
         absolute_score
@@ -45,22 +45,22 @@ pub fn evaluate(board: &Board) -> i32 {
 /// Avalia cor específica
 fn evaluate_color(board: &Board, color: Color, game_phase: &game_phase::GamePhase) -> i32 {
     let mut score = 0;
-    
+
     // Material + PST
     score += material::evaluate_material_and_pst(board, color, game_phase);
-    
+
     // Estrutura de peões (incluindo passados)
     score += pawn_structure::evaluate_pawn_structure(board, color);
-    
+
     // Mobilidade segura
     score += mobility::evaluate_mobility(board, color);
-    
+
     // Segurança do rei (aprimorada)
     score += king_safety::evaluate_king_safety(board, color, game_phase);
-    
+
     // NOVO: Avaliação de ameaças (peças penduradas, ataques)
     score += threats::evaluate_threats(board, color);
-    
+
     // Avaliações específicas por fase
     match game_phase {
         game_phase::GamePhase::Opening => {
@@ -78,11 +78,11 @@ fn evaluate_color(board: &Board, color: Color, game_phase: &game_phase::GamePhas
 /// Avalia o tempo (iniciativa)
 fn evaluate_tempo(board: &Board) -> i32 {
     let current_moves = board.generate_legal_moves().len() as i32;
-    
+
     let mut temp_board = *board;
     temp_board.to_move = !temp_board.to_move;
     let opponent_moves = temp_board.generate_legal_moves().len() as i32;
-    
+
     ((current_moves - opponent_moves) * 2).clamp(-50, 50)
 }
 
@@ -91,21 +91,21 @@ fn evaluate_development(board: &Board, color: Color) -> i32 {
     let mut score = 0;
     let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
     let back_rank = if color == Color::White { 0xFF } else { 0xFF00000000000000 };
-    
+
     // Penaliza peças ainda no rank inicial
     let knights_undeveloped = (board.knights & pieces & back_rank).count_ones() as i32 * -15;
     let bishops_undeveloped = (board.bishops & pieces & back_rank).count_ones() as i32 * -15;
-    
+
     // Avaliação de castling melhorada (do código original)
     score += evaluate_castling(board, color);
-    
+
     score + knights_undeveloped + bishops_undeveloped
 }
 
 /// Avalia castling
 fn evaluate_castling(board: &Board, color: Color) -> i32 {
     let mut score = 0;
-    
+
     if color == Color::White {
         let white_king = board.kings & board.white_pieces;
         if white_king != 0 {
@@ -135,7 +135,7 @@ fn evaluate_castling(board: &Board, color: Color) -> i32 {
             }
         }
     }
-    
+
     score
 }
 
@@ -143,15 +143,15 @@ fn evaluate_castling(board: &Board, color: Color) -> i32 {
 fn evaluate_king_activity(board: &Board, color: Color) -> i32 {
     let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
     let king_bb = board.kings & pieces;
-    
+
     if king_bb == 0 {
         return 0;
     }
-    
+
     let king_square = king_bb.trailing_zeros() as usize;
     let rank = king_square / 8;
     let file = king_square % 8;
-    
+
     // Bônus por rei centralizado no endgame
     let centralization_bonus = match (rank, file) {
         (3, 3) | (3, 4) | (4, 3) | (4, 4) => 40, // Centro
@@ -160,10 +160,10 @@ fn evaluate_king_activity(board: &Board, color: Color) -> i32 {
         (5, 2) | (5, 3) | (5, 4) | (5, 5) => 25, // Próximo ao centro
         _ => 0
     };
-    
+
     // Mobilidade do rei
     let king_mobility = crate::moves::king::get_king_attacks_lookup(king_square as u8)
         .count_ones() as i32 * 5;
-    
+
     centralization_bonus + king_mobility
 }

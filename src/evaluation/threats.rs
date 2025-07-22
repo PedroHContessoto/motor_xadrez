@@ -1,5 +1,5 @@
 // Avaliação de ameaças - peças penduradas, ataques táticos
-use crate::{board::Board, types::Color};
+use crate::{board::Board, types::{Color, PieceKind}};
 use super::material::MATERIAL_VALUES;
 
 /// Avalia ameaças mútuas entre as cores
@@ -45,11 +45,24 @@ fn evaluate_hanging_pieces(board: &Board, color: Color) -> i32 {
                 
                 // Verifica se a peça está defendida
                 if board.is_square_attacked_by(sq, color) {
-                    // Defendida - penalidade menor (pode haver tática)
-                    penalty += vulnerability / 4;
-                } else {
-                    // Desprotegida - penalidade maior
+                    // Defendida - penalidade maior (era /4, agora /2)
                     penalty += vulnerability / 2;
+                } else {
+                    // Desprotegida - penalidade triplicada (era /2, agora full * 1.5)
+                    let base_penalty = (vulnerability as f32 * 1.5) as i32;
+                    penalty += base_penalty;
+                    
+                    // Penalidade extra para rainha pendurada
+                    if piece_kind == PieceKind::Queen {
+                        penalty += 300;
+                    }
+                    
+                    // Penalidade especial para cavalos avançados sem suporte
+                    if piece_kind == PieceKind::Knight {
+                        if is_advanced_knight(sq, color) && !has_support(board, sq, color) {
+                            penalty += vulnerability / 2 + 50;
+                        }
+                    }
                 }
             }
         }
@@ -98,7 +111,10 @@ fn evaluate_enemy_attacks(board: &Board, color: Color) -> i32 {
         }
     }
     
-    // Pequeno bônus por atacar peões inimigos
+    // NOVO: Bônus por forks de cavalo
+    bonus += evaluate_knight_forks(board, color);
+    
+    // Pequeno bônus por atacar peões inimigos (reduzido de 5 para 3)
     let enemy_pawns = board.pawns & enemy_pieces;
     let mut pawn_bb = enemy_pawns;
     while pawn_bb != 0 {
@@ -106,7 +122,60 @@ fn evaluate_enemy_attacks(board: &Board, color: Color) -> i32 {
         pawn_bb &= pawn_bb - 1;
         
         if board.is_square_attacked_by(sq, color) {
-            bonus += 5;
+            bonus += 3; // Reduzido de 5 para 3
+        }
+    }
+    
+    bonus
+}
+
+/// Avalia bônus por forks de cavalo (atacar duas peças valiosas simultaneamente)
+fn evaluate_knight_forks(board: &Board, color: Color) -> i32 {
+    let mut bonus = 0;
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    
+    // Analisa cada cavalo nosso
+    let our_knights = board.knights & our_pieces;
+    let mut knight_bb = our_knights;
+    
+    while knight_bb != 0 {
+        let knight_sq = knight_bb.trailing_zeros() as u8;
+        knight_bb &= knight_bb - 1;
+        
+        // Obtém ataques do cavalo
+        let knight_attacks = crate::moves::knight::get_knight_attacks_lookup(knight_sq);
+        
+        // Conta peças inimigas valiosas atacadas
+        let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
+        let attacked_valuables = knight_attacks & valuable_enemies;
+        
+        if attacked_valuables.count_ones() >= 2 {
+            // Calcula valor das peças atacadas
+            let mut attacked_value = 0;
+            let mut temp_bb = attacked_valuables;
+            
+            while temp_bb != 0 {
+                let sq = temp_bb.trailing_zeros() as u8;
+                temp_bb &= temp_bb - 1;
+                
+                if let Some(piece_kind) = board.get_piece_on_square(sq) {
+                    attacked_value += MATERIAL_VALUES[piece_kind as usize];
+                }
+            }
+            
+            // Bônus significativo por fork em peças valiosas
+            if attacked_value > 300 {
+                bonus += 30; // Fork tático valioso
+            } else {
+                bonus += 15; // Fork menor
+            }
+        }
+        
+        // Bônus especial por fork rei + peça
+        let enemy_king = board.kings & enemy_pieces;
+        if knight_attacks & enemy_king != 0 && knight_attacks & valuable_enemies != 0 {
+            bonus += 50; // Fork real é muito valioso
         }
     }
     
@@ -167,6 +236,100 @@ fn can_piece_type_attack(board: &Board, target_square: u8, attacker_color: Color
     }
     
     false
+}
+
+/// Verifica se cavalo está em posição avançada (ranks 5-7 para brancas, 2-4 para pretas)
+fn is_advanced_knight(square: u8, color: Color) -> bool {
+    let rank = square / 8;
+    match color {
+        Color::White => rank >= 4, // Ranks 5-8 (0-indexed: 4-7)
+        Color::Black => rank <= 3, // Ranks 1-4 (0-indexed: 0-3) 
+    }
+}
+
+/// Verifica se peça tem suporte de peões ou outras peças próximas
+fn has_support(board: &Board, square: u8, color: Color) -> bool {
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    
+    // Verifica suporte de peões
+    let pawn_support = has_pawn_support(board, square, color);
+    if pawn_support {
+        return true;
+    }
+    
+    // Verifica peças adjacentes (cavalos, bispos, torres próximas)
+    let adjacent_squares = get_adjacent_squares(square);
+    for adj_sq in adjacent_squares {
+        if (1u64 << adj_sq) & our_pieces != 0 {
+            return true;
+        }
+    }
+    
+    false
+}
+
+/// Verifica suporte específico de peões
+fn has_pawn_support(board: &Board, square: u8, color: Color) -> bool {
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    
+    let file = square % 8;
+    let rank = square / 8;
+    
+    // Posições onde peões podem defender esta casa
+    let support_squares = match color {
+        Color::White => {
+            // Peões brancos defendem de baixo (rank anterior)
+            if rank > 0 {
+                let mut squares = Vec::new();
+                if file > 0 { squares.push((rank - 1) * 8 + file - 1); }
+                if file < 7 { squares.push((rank - 1) * 8 + file + 1); }
+                squares
+            } else {
+                Vec::new()
+            }
+        },
+        Color::Black => {
+            // Peões pretos defendem de cima (rank posterior)
+            if rank < 7 {
+                let mut squares = Vec::new();
+                if file > 0 { squares.push((rank + 1) * 8 + file - 1); }
+                if file < 7 { squares.push((rank + 1) * 8 + file + 1); }
+                squares
+            } else {
+                Vec::new()
+            }
+        }
+    };
+    
+    for support_sq in support_squares {
+        if (1u64 << support_sq) & our_pawns != 0 {
+            return true;
+        }
+    }
+    
+    false
+}
+
+/// Obtém casas adjacentes (8 direções) para uma casa
+fn get_adjacent_squares(square: u8) -> Vec<u8> {
+    let mut adjacent = Vec::new();
+    let file = square % 8;
+    let rank = square / 8;
+    
+    for dr in -1..=1i8 {
+        for df in -1..=1i8 {
+            if dr == 0 && df == 0 { continue; }
+            
+            let new_rank = rank as i8 + dr;
+            let new_file = file as i8 + df;
+            
+            if new_rank >= 0 && new_rank <= 7 && new_file >= 0 && new_file <= 7 {
+                adjacent.push((new_rank as u8) * 8 + (new_file as u8));
+            }
+        }
+    }
+    
+    adjacent
 }
 
 /// Verifica se uma peça específica pode atacar uma casa (versão simplificada)
