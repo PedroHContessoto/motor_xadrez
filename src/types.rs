@@ -43,11 +43,41 @@ pub struct Piece {
 
 // Struct para representar um lance no jogo.
 // Guarda a casa de origem e a de destino.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Move {
     pub from: u8,
     pub to: u8,
     pub promotion: Option<PieceKind>,
     pub is_castling: bool,
     pub is_en_passant: bool,
+}
+
+// Adicione esta implementação para a struct Move
+impl std::fmt::Display for Move {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let from = to_algebraic(self.from);
+        let to = to_algebraic(self.to);
+        if let Some(p) = self.promotion {
+            write!(f, "{}{}{}", from, to, piece_to_char(p))
+        } else {
+            write!(f, "{}{}", from, to)
+        }
+    }
+}
+
+// Adicione estas duas funções auxiliares no mesmo ficheiro
+fn to_algebraic(sq: u8) -> String {
+    let file = (sq % 8) as u8 + b'a';
+    let rank = (sq / 8) as u8 + b'1';
+    format!("{}{}", file as char, rank as char)
+}
+
+fn piece_to_char(p: PieceKind) -> char {
+    match p {
+        PieceKind::Queen => 'q',
+        PieceKind::Rook => 'r',
+        PieceKind::Bishop => 'b',
+        PieceKind::Knight => 'n',
+        _ => ' ',
+    }
 }

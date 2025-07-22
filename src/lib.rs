@@ -4,6 +4,9 @@ pub mod types;
 pub mod board;
 pub mod moves;
 pub mod zobrist;
+pub mod evaluation;
+pub mod search;
+pub mod transposition;
 
 pub use types::*;
 pub use board::Board;

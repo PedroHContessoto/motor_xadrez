@@ -1,55 +1,98 @@
-// Motor Xadrez - High-Performance Chess Engine
+// Ficheiro: src/main.rs
+// Descrição: Ponto de entrada com o loop principal do protocolo UCI.
 
-use motor_xadrez::{Board, Color, PieceKind};
+use motor_xadrez::{Board, Move};
+use motor_xadrez::evaluation;
+use motor_xadrez::search;
+use motor_xadrez::transposition::TranspositionTable;
+use std::io;
 
 fn main() {
-    let board = Board::new();
-    println!("=== Motor Xadrez - Pronto para IA ===");
-    println!("Zobrist hash inicial: {}", board.zobrist_hash);
-    
-    // Exemplo de uso básico
-    println!("\n📋 Posição inicial:");
-    println!("  Peças brancas: {:016x}", board.white_pieces);
-    println!("  Peças pretas: {:016x}", board.black_pieces);
-    println!("  Vez de jogar: {:?}", board.to_move);
-    
-    // Contagem de peças
-    println!("\n🔢 Contagem de peças:");
-    for &piece in &[PieceKind::Pawn, PieceKind::Knight, PieceKind::Bishop, PieceKind::Rook, PieceKind::Queen, PieceKind::King] {
-        let white_count = board.piece_count(Color::White, piece);
-        let black_count = board.piece_count(Color::Black, piece);
-        println!("  {:?}: Brancas={}, Pretas={}", piece, white_count, black_count);
-    }
-    
-    // Gerar movimentos legais
-    let legal_moves = board.generate_legal_moves();
-    println!("\n♟️  Movimentos legais disponíveis: {}", legal_moves.len());
-    
-    // Verificar estado do jogo
-    println!("\n🎯 Estado do jogo:");
-    println!("  Rei branco em xeque: {}", board.is_king_in_check(Color::White));
-    println!("  Rei preto em xeque: {}", board.is_king_in_check(Color::Black));
-    println!("  Jogo terminado: {}", board.is_game_over());
-    println!("  Halfmove clock: {}", board.halfmove_clock);
-    
-    // Exemplo com FEN
-    println!("\n🔄 Testando FEN:");
-    let test_fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
-    match Board::from_fen(test_fen) {
-        Ok(fen_board) => {
-            println!("  FEN válida: {} movimentos legais", fen_board.generate_legal_moves().len());
-            println!("  Zobrist hash: {}", fen_board.zobrist_hash);
+    // Inicializa as dependências do motor
+    evaluation::init_evaluation_masks();
+    let mut board = Board::new();
+    let mut tt = TranspositionTable::new(16); // 16 MB
+
+    // Loop principal que espera por comandos da GUI
+    loop {
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        let commands: Vec<&str> = input.trim().split_whitespace().collect();
+
+        if let Some(&command) = commands.get(0) {
+            match command {
+                "uci" => {
+                    println!("id name MeuMotorRust 1.0");
+                    println!("id author OProgramador");
+                    // Adicionar opções aqui no futuro, se quisermos (ex: tamanho da TT)
+                    println!("uciok");
+                }
+                "isready" => {
+                    println!("readyok");
+                }
+                "position" => {
+                    handle_position_command(&mut board, &commands);
+                }
+                "go" => {
+                    handle_go_command(&board, &mut tt);
+                }
+                "quit" => {
+                    break; // Sai do loop e termina o programa
+                }
+                _ => {
+                    // Ignora comandos desconhecidos
+                }
+            }
         }
-        Err(e) => println!("  Erro FEN: {}", e),
     }
-    
-    // Pronto para integração com IA
-    println!("\n🚀 Próximos passos:");
-    println!("  ✅ Motor validado e funcional");
-    println!("  ✅ Zobrist hashing implementado");
-    println!("  ✅ Detecção de draws completa");
-    println!("  ✅ Performance otimizada (60M+ NPS)");
-    println!("  📝 Implementar: Avaliação de posição");
-    println!("  📝 Implementar: Busca minimax/alpha-beta");
-    println!("  📝 Implementar: Interface UCI");
+}
+
+/// Processa o comando "position"
+fn handle_position_command(board: &mut Board, commands: &[&str]) {
+    let mut move_start_index = 0;
+
+    if commands.get(1) == Some(&"startpos") {
+        *board = Board::new();
+        move_start_index = 2;
+    } else if commands.get(1) == Some(&"fen") {
+        // Encontra o início da string FEN
+        // Exemplo: position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 moves e2e4
+        let fen_parts: Vec<&str> = commands.iter().skip(2).take_while(|&&c| c != "moves").cloned().collect();
+        let fen = fen_parts.join(" ");
+        if let Ok(new_board) = Board::from_fen(&fen) {
+            *board = new_board;
+        }
+        move_start_index = 2 + fen_parts.len();
+    }
+
+    // Se houver lances após a posição, aplica-os
+    if commands.get(move_start_index) == Some(&"moves") {
+        for move_str in commands.iter().skip(move_start_index + 1) {
+            if let Some(mv) = parse_move(board, move_str) {
+                board.make_move(mv);
+            }
+        }
+    }
+}
+
+/// Processa o comando "go"
+fn handle_go_command(board: &Board, tt: &mut TranspositionTable) {
+    // Por agora, usamos uma profundidade fixa. No futuro, podemos ler parâmetros como "depth" ou "movetime".
+    let depth = 6;
+
+    if let Some((best_move, _score)) = search::find_best_move(board, depth, tt) {
+        // O comando mais importante: envia a melhor jogada de volta para a GUI
+        println!("bestmove {}", best_move);
+    }
+}
+
+/// Função auxiliar para converter uma string (ex: "e2e4") num objeto Move
+fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
+    let legal_moves = board.generate_legal_moves();
+    for mv in legal_moves {
+        if mv.to_string() == *move_str {
+            return Some(mv);
+        }
+    }
+    None
 }

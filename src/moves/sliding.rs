@@ -113,7 +113,7 @@ const fn generate_rook_masks() -> [Bitboard; 64] {
 }
 
 /// Calcula ataques de bispo usando máscara e ocupação
-fn get_bishop_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+pub fn get_bishop_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
     let mut attacks = 0u64;
     let directions = [7i8, 9, -7, -9]; // diagonais
     
@@ -142,7 +142,7 @@ fn get_bishop_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
 }
 
 /// Calcula ataques de torre usando máscara e ocupação
-fn get_rook_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
+pub fn get_rook_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
     let mut attacks = 0u64;
     let directions = [1i8, -1, 8, -8]; // retas
     
