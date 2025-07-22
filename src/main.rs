@@ -85,7 +85,7 @@ impl TimeManager {
 
 fn main() {
     // Inicializa as dependências do motor
-    evaluation::init_evaluation_masks();
+    motor_xadrez::evaluation::pawn_structure::init_pawn_masks();
     let mut board = Board::new();
     let mut tt = TranspositionTable::new(16); // 16 MB
     let mut moves_played = 0u16;

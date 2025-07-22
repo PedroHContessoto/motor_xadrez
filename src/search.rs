@@ -62,7 +62,16 @@ const FUTILITY_MARGIN: [i32; 4] = [0, 200, 300, 500];
 fn order_moves(board: &Board, moves: Vec<Move>, tt: &TranspositionTable, context: &SearchContext, depth: u8) -> Vec<Move> {
     // Tenta obter a melhor jogada da TT para pesquisá-la primeiro
     let tt_move = if let Some(entry) = tt.probe(board.zobrist_hash) {
-        entry.best_move
+        if let Some(mv) = entry.best_move {
+            // Valida se o move da TT é legal
+            if board.is_legal_move(mv) {
+                Some(mv)
+            } else {
+                None // Ignora move ilegal da TT
+            }
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -126,8 +135,18 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, max_time_ms: u64, 
         // Obtém a melhor jogada da tabela de transposição após cada iteração
         if let Some(entry) = tt.probe(board.zobrist_hash) {
             if let Some(mv) = entry.best_move {
-                best_move = Some(mv);
-                best_score = score;
+                // IMPORTANTE: Valida se o move da TT é legal na posição atual
+                if board.is_legal_move(mv) {
+                    best_move = Some(mv);
+                    best_score = score;
+                } else {
+                    // Move ilegal da TT - usa fallback
+                    let legal_moves = board.generate_legal_moves();
+                    if let Some(fallback_mv) = legal_moves.first() {
+                        best_move = Some(*fallback_mv);
+                        best_score = score;
+                    }
+                }
                 let nps = if start_time.elapsed().as_millis() > 0 {
                     (context.nodes_searched as f64 / (start_time.elapsed().as_millis() as f64 / 1000.0)) as u64
                 } else {
