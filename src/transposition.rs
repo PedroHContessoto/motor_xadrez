@@ -46,7 +46,7 @@ impl TranspositionTable {
         let entry_size = std::mem::size_of::<TTEntry>();
         let num_entries = (size_mb * 1024 * 1024) / entry_size;
 
-        println!("INFO: Tabela de Transposição com {} entradas (aprox. {} MB).", num_entries, size_mb);
+        // println!("INFO: Tabela de Transposição com {} entradas (aprox. {} MB).", num_entries, size_mb);
 
         TranspositionTable {
             entries: vec![TTEntry::empty(); num_entries],

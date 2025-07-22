@@ -67,7 +67,7 @@ pub fn init_evaluation_masks() {
 }
 
 
-/// Avalia a posição, agora considerando a fase do jogo e peões passados.
+/// Avaliação dinâmica melhorada baseada na fase do jogo
 pub fn evaluate(board: &Board) -> i32 {
     let mut game_phase_score = 0;
     game_phase_score += (board.knights.count_ones() as i32) * 1;
@@ -75,21 +75,44 @@ pub fn evaluate(board: &Board) -> i32 {
     game_phase_score += (board.rooks.count_ones() as i32) * 2;
     game_phase_score += (board.queens.count_ones() as i32) * 4;
 
-    let is_endgame = game_phase_score < 8;
+    // Fases do jogo mais precisas
+    let is_opening = game_phase_score > 20;
+    let is_middlegame = game_phase_score > 10 && game_phase_score <= 20;
+    let is_endgame = game_phase_score <= 10;
 
-    let white_score = evaluate_color(board, Color::White, is_endgame);
-    let black_score = evaluate_color(board, Color::Black, is_endgame);
+    let white_score = evaluate_color(board, Color::White, is_endgame, is_opening);
+    let black_score = evaluate_color(board, Color::Black, is_endgame, is_opening);
 
-    let final_score = white_score - black_score;
+    let mut final_score = white_score - black_score;
     
-    // Interpolação suave entre meio-jogo e final
-    let phase = (game_phase_score as f32 / 24.0).clamp(0.0, 1.0);
-    let interpolated_score = (final_score as f32 * phase) as i32;
+    // Bônus por tempo (encoraja jogadas mais rápidas quando vantajoso)
+    if final_score.abs() < 50 {
+        // Posição equilibrada - valoriza mobilidade
+        final_score += evaluate_tempo(board);
+    }
     
-    // Retorna a pontuação da perspetiva das Brancas
-    interpolated_score
+    // Ajuste dinâmico baseado na fase
+    let phase_multiplier = if is_opening {
+        0.8  // Abertura: menos agressivo na avaliação
+    } else if is_middlegame {
+        1.2  // Meio-jogo: mais agressivo
+    } else {
+        1.0  // Endgame: avaliação padrão
+    };
+    
+    let adjusted_score = (final_score as f32 * phase_multiplier) as i32;
+    
+    // Clamp score para evitar valores absurdos
+    let absolute_score = adjusted_score.clamp(-10000, 10000);
+    
+    // Torna relativa ao jogador atual (positivo = jogador atual melhor)
+    if board.to_move == Color::White {
+        absolute_score
+    } else {
+        -absolute_score
+    }
 }
-fn evaluate_color(board: &Board, color: Color, is_endgame: bool) -> i32 {
+fn evaluate_color(board: &Board, color: Color, is_endgame: bool, is_opening: bool) -> i32 {
     let mut score = 0;
     let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
     let king_table = if is_endgame { &KING_TABLE_ENDGAME } else { &KING_TABLE_MIDGAME };
@@ -101,11 +124,18 @@ fn evaluate_color(board: &Board, color: Color, is_endgame: bool) -> i32 {
     score += evaluate_piece_type(board.queens & pieces, &QUEEN_TABLE, PieceKind::Queen, color);
     score += evaluate_piece_type(board.kings & pieces, king_table, PieceKind::King, color);
     
-    // Avaliações estratégicas adicionais
+    // Avaliações estratégicas adicionais ajustadas por fase
     score += evaluate_mobility(board, color);
-    score += evaluate_center_control(board, color);
+    score += evaluate_center_control(board, color, is_opening);
     score += evaluate_king_safety(board, color, is_endgame);
     score += evaluate_connected_passed_pawns(board, board.pawns & pieces, color);
+    
+    // Avaliações específicas por fase
+    if is_opening {
+        score += evaluate_development(board, color);
+    } else if is_endgame {
+        score += evaluate_king_activity(board, color);
+    }
 
     score
 }
@@ -202,21 +232,24 @@ fn evaluate_mobility(board: &Board, color: Color) -> i32 {
     score
 }
 
-/// Avalia o controle do centro
-fn evaluate_center_control(board: &Board, color: Color) -> i32 {
+/// Avalia o controle do centro com ajuste por fase
+fn evaluate_center_control(board: &Board, color: Color, is_opening: bool) -> i32 {
     let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
     let mut score = 0;
     
-    // Bônus para peões no centro
-    let pawns_in_center = (board.pawns & pieces & CENTRAL_SQUARES).count_ones() as i32 * 20;
-    let pawns_in_extended_center = (board.pawns & pieces & EXTENDED_CENTER).count_ones() as i32 * 10;
+    // Bônus ajustado por fase do jogo
+    let center_multiplier = if is_opening { 1.5 } else { 1.0 };
     
-    // Bônus para cavalos no centro
-    let knights_in_center = (board.knights & pieces & CENTRAL_SQUARES).count_ones() as i32 * 15;
-    let knights_in_extended_center = (board.knights & pieces & EXTENDED_CENTER).count_ones() as i32 * 8;
+    // Bônus para peões no centro
+    let pawns_in_center = (board.pawns & pieces & CENTRAL_SQUARES).count_ones() as i32 * (20.0 * center_multiplier) as i32;
+    let pawns_in_extended_center = (board.pawns & pieces & EXTENDED_CENTER).count_ones() as i32 * (10.0 * center_multiplier) as i32;
+    
+    // Bônus para cavalos no centro (mais importante na abertura)
+    let knights_in_center = (board.knights & pieces & CENTRAL_SQUARES).count_ones() as i32 * (15.0 * center_multiplier) as i32;
+    let knights_in_extended_center = (board.knights & pieces & EXTENDED_CENTER).count_ones() as i32 * (8.0 * center_multiplier) as i32;
     
     // Bônus para bispos no centro
-    let bishops_in_center = (board.bishops & pieces & CENTRAL_SQUARES).count_ones() as i32 * 12;
+    let bishops_in_center = (board.bishops & pieces & CENTRAL_SQUARES).count_ones() as i32 * (12.0 * center_multiplier) as i32;
     
     score += pawns_in_center + pawns_in_extended_center;
     score += knights_in_center + knights_in_extended_center;
@@ -312,4 +345,96 @@ fn evaluate_connected_passed_pawns(board: &Board, pawn_bb: Bitboard, color: Colo
     }
     
     score
+}
+
+/// Avalia o tempo (iniciativa) - favorece quem tem mais opções
+fn evaluate_tempo(board: &Board) -> i32 {
+    let current_moves = board.generate_legal_moves().len() as i32;
+    
+    // Simula jogada do oponente para ver suas opções
+    let mut temp_board = *board;
+    temp_board.to_move = !temp_board.to_move;
+    let opponent_moves = temp_board.generate_legal_moves().len() as i32;
+    
+    // Bônus por ter mais opções (tempo/iniciativa) - limitado
+    ((current_moves - opponent_moves) * 2).clamp(-50, 50)
+}
+
+/// Avalia o desenvolvimento na abertura
+fn evaluate_development(board: &Board, color: Color) -> i32 {
+    let mut score = 0;
+    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let back_rank = if color == Color::White { 0xFF } else { 0xFF00000000000000 };
+    
+    // Penaliza peças ainda no rank inicial
+    let knights_undeveloped = (board.knights & pieces & back_rank).count_ones() as i32 * -15;
+    let bishops_undeveloped = (board.bishops & pieces & back_rank).count_ones() as i32 * -15;
+    
+    // Avaliação melhorada de castling
+    if color == Color::White {
+        // Verifica se o rei branco já fez castling (não está mais em e1)
+        let white_king = board.kings & board.white_pieces;
+        if white_king != 0 {
+            let king_square = white_king.trailing_zeros();
+            if king_square == 6 || king_square == 2 { // g1 ou c1 (castling feito)
+                score += 50; // Grande bônus por ter feito castling
+            } else if king_square == 4 { // Ainda em e1
+                // Penaliza se perdeu os direitos de castling
+                if board.castling_rights & 0x03 == 0 {
+                    score -= 30; // Penalidade por perder castling sem fazer
+                } else {
+                    // Pequeno bônus por ainda poder fazer castling
+                    score += 10;
+                }
+            }
+        }
+    } else {
+        // Mesma lógica para as pretas
+        let black_king = board.kings & board.black_pieces;
+        if black_king != 0 {
+            let king_square = black_king.trailing_zeros();
+            if king_square == 62 || king_square == 58 { // g8 ou c8 (castling feito)
+                score += 50; // Grande bônus por ter feito castling
+            } else if king_square == 60 { // Ainda em e8
+                // Penaliza se perdeu os direitos de castling
+                if board.castling_rights & 0x0C == 0 {
+                    score -= 30; // Penalidade por perder castling sem fazer
+                } else {
+                    // Pequeno bônus por ainda poder fazer castling
+                    score += 10;
+                }
+            }
+        }
+    }
+    
+    score + knights_undeveloped + bishops_undeveloped
+}
+
+/// Avalia a atividade do rei no endgame
+fn evaluate_king_activity(board: &Board, color: Color) -> i32 {
+    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let king_bb = board.kings & pieces;
+    
+    if king_bb == 0 {
+        return 0;
+    }
+    
+    let king_square = king_bb.trailing_zeros() as usize;
+    let rank = king_square / 8;
+    let file = king_square % 8;
+    
+    // Bônus por rei centralizado no endgame
+    let centralization_bonus = match (rank, file) {
+        (3, 3) | (3, 4) | (4, 3) | (4, 4) => 40, // Centro
+        (2, 2) | (2, 3) | (2, 4) | (2, 5) |
+        (3, 2) | (3, 5) | (4, 2) | (4, 5) |
+        (5, 2) | (5, 3) | (5, 4) | (5, 5) => 25, // Próximo ao centro
+        _ => 0
+    };
+    
+    // Bônus por mobilidade do rei
+    let king_mobility = crate::moves::king::get_king_attacks_lookup(king_square as u8)
+        .count_ones() as i32 * 5;
+    
+    centralization_bonus + king_mobility
 }

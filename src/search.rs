@@ -1,7 +1,7 @@
 // Ficheiro: src/search.rs
 // Descrição: Versão corrigida e final da lógica de busca Alfa-Beta.
 
-use crate::{board::Board, evaluation, transposition::*, types::{Move, Color, PieceKind}};
+use crate::{board::Board, evaluation, transposition::*, types::{Move, PieceKind}};
 use std::time::Instant;
 
 // Estrutura para manter o contexto da busca
@@ -9,6 +9,7 @@ use std::time::Instant;
 struct SearchContext {
     killer_moves: [[Option<Move>; 2]; 32], // 2 killers por profundidade (até profundidade 32)
     history: [[i32; 64]; 64], // Tabela de histórico [from][to]
+    nodes_searched: u64, // Contador de nós pesquisados
 }
 
 impl SearchContext {
@@ -16,6 +17,7 @@ impl SearchContext {
         SearchContext {
             killer_moves: [[None; 2]; 32],
             history: [[0; 64]; 64],
+            nodes_searched: 0,
         }
     }
     
@@ -49,6 +51,14 @@ impl SearchContext {
 const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20000]; // Usamos valores maiores para MVV-LVA
 const MATE_VALUE: i32 = 99999; // Valor base para mate (maior que rainha*10)
 
+// Constantes para Late Move Reduction
+const LMR_MIN_DEPTH: u8 = 3;
+const LMR_MIN_MOVES: usize = 4;
+const LMR_REDUCTION: u8 = 1;
+
+// Constantes para Futility Pruning
+const FUTILITY_MARGIN: [i32; 4] = [0, 200, 300, 500];
+
 fn order_moves(board: &Board, moves: Vec<Move>, tt: &TranspositionTable, context: &SearchContext, depth: u8) -> Vec<Move> {
     // Tenta obter a melhor jogada da TT para pesquisá-la primeiro
     let tt_move = if let Some(entry) = tt.probe(board.zobrist_hash) {
@@ -61,6 +71,8 @@ fn order_moves(board: &Board, moves: Vec<Move>, tt: &TranspositionTable, context
         let mut score = 0;
         if Some(mv) == tt_move {
             score = 100_000; // Prioridade máxima para a jogada da TT
+        } else if mv.is_castling {
+            score = 15_000; // Alta prioridade para castling
         } else if board.is_capture(mv) {
             let from_piece = board.get_piece_on_square(mv.from).unwrap_or(PieceKind::Pawn);
             let to_piece = board.get_piece_on_square(mv.to).unwrap_or(PieceKind::Pawn);
@@ -86,38 +98,122 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, max_time_ms: u64, 
     let mut context = SearchContext::new();
     let mut best_move = None;
     let mut best_score = 0;
+    let mut prev_score = 0;
     
-    // Iterative deepening
+    // Iterative deepening com aspiration windows
     for depth in 1..=max_depth {
-        if start_time.elapsed().as_millis() as u64 > max_time_ms {
+        let elapsed = start_time.elapsed().as_millis() as u64;
+        
+        // Para se não tiver tempo suficiente para a próxima profundidade
+        // Estima que a próxima profundidade levará ~3x mais tempo
+        if depth > 3 && elapsed * 3 > max_time_ms {
             break;
         }
         
-        let score = alphabeta(board, depth, i32::MIN + 1, i32::MAX - 1, board.to_move == Color::White, tt, &mut context);
+        // Para só se ultrapassou o tempo limite
+        if elapsed > max_time_ms {
+            break;
+        }
+        
+        let score = if depth > 2 {
+            // Usa aspiration windows para profundidades maiores
+            aspiration_search(board, depth, prev_score, tt, &mut context, start_time, max_time_ms)
+        } else {
+            // Busca completa para as primeiras profundidades
+            pvs_search(board, depth, -50000, 50000, tt, &mut context, start_time, max_time_ms, true)
+        };
         
         // Obtém a melhor jogada da tabela de transposição após cada iteração
         if let Some(entry) = tt.probe(board.zobrist_hash) {
             if let Some(mv) = entry.best_move {
                 best_move = Some(mv);
                 best_score = score;
-                println!("Profundidade {}: melhor jogada {}, pontuação {}", depth, mv, score);
+                let nps = if start_time.elapsed().as_millis() > 0 {
+                    (context.nodes_searched as f64 / (start_time.elapsed().as_millis() as f64 / 1000.0)) as u64
+                } else {
+                    0
+                };
+                let time_ms = start_time.elapsed().as_millis() as u64;
+                
+                // UCI info output - formato exato que Arena espera
+                // Debug: mostrar score real
+                if score.abs() > 10000 {
+                    println!("info string SCORE ALTO: {} em profundidade {}", score, depth);
+                }
+                let display_score = score.clamp(-10000, 10000);
+                println!("info depth {} score cp {} nodes {} nps {} time {} pv {}", 
+                        depth, display_score, context.nodes_searched, nps, time_ms, mv);
+                
+                // Força flush do stdout para Arena ver imediatamente  
+                use std::io::{self, Write};
+                io::stdout().flush().ok();
             }
         }
         
-        // Para no caso de mate forçado encontrado
-        if score.abs() > MATE_VALUE - 100 {
-            break;
-        }
+        prev_score = score;
+        
+        
+        // Para no caso de mate forçado encontrado - remover para debug
+        // if score.abs() > MATE_VALUE - 1000 {
+        //     break;
+        // }
     }
 
     let duration = start_time.elapsed();
-    println!("Tempo de busca: {:?}", duration);
+    let nps = if duration.as_millis() > 0 {
+        (context.nodes_searched as f64 / (duration.as_millis() as f64 / 1000.0)) as u64
+    } else {
+        0
+    };
+    
+    // Final summary removido para Arena
 
     best_move.map(|mv| (mv, best_score))
 }
 
-fn alphabeta(board: &Board, depth: u8, mut alpha: i32, mut beta: i32, is_maximizing: bool, tt: &mut TranspositionTable, context: &mut SearchContext) -> i32 {
+// Aspiration Windows: busca com janelas mais estreitas para melhor performance
+fn aspiration_search(board: &Board, depth: u8, prev_score: i32, tt: &mut TranspositionTable, context: &mut SearchContext, start_time: Instant, max_time_ms: u64) -> i32 {
+    let mut window = 25;
+    let mut alpha = prev_score - window;
+    let mut beta = prev_score + window;
+    
+    loop {
+        let score = pvs_search(board, depth, alpha, beta, tt, context, start_time, max_time_ms, true);
+        
+        if score <= alpha {
+            // Falha em alpha - amplia janela para baixo
+            alpha = -50000;
+            window *= 2;
+        } else if score >= beta {
+            // Falha em beta - amplia janela para cima
+            beta = 50000;
+            window *= 2;
+        } else {
+            // Sucesso - score dentro da janela
+            return score;
+        }
+        
+        // Limite de segurança para evitar loops infinitos
+        if window > 1000 {
+            return pvs_search(board, depth, -50000, 50000, tt, context, start_time, max_time_ms, true);
+        }
+    }
+}
+
+// Principal Variation Search - versão mais eficiente do alpha-beta (negamax puro)
+fn pvs_search(board: &Board, depth: u8, mut alpha: i32, mut beta: i32, tt: &mut TranspositionTable, context: &mut SearchContext, start_time: Instant, max_time_ms: u64, is_pv_node: bool) -> i32 {
+    context.nodes_searched += 1;
+    
+    // Verificação de tempo
+    if context.nodes_searched % 4096 == 0 {
+        if start_time.elapsed().as_millis() as u64 > max_time_ms {
+            return 0; // Timeout
+        }
+    }
+    
     let original_alpha = alpha;
+    
+    // Transposition Table lookup
     if let Some(entry) = tt.probe(board.zobrist_hash) {
         if entry.depth >= depth {
             match entry.entry_type {
@@ -136,120 +232,126 @@ fn alphabeta(board: &Board, depth: u8, mut alpha: i32, mut beta: i32, is_maximiz
         return 0;
     }
 
-    // Null Move Pruning
-    if depth >= 3 && !board.is_king_in_check(board.to_move) && !is_maximizing {
+    // Null Move Pruning (apenas para non-PV nodes)
+    if depth >= 3 && !is_pv_node && !board.is_king_in_check(board.to_move) {
         let mut null_board = *board;
         null_board.to_move = !null_board.to_move;
         null_board.en_passant_target = None;
-        let null_score = -alphabeta(&null_board, depth - 3, -beta, -beta + 1, !is_maximizing, tt, context);
+        let temp_null_score = pvs_search(&null_board, depth - 3, -beta, -beta + 1, tt, context, start_time, max_time_ms, false);
+        let null_score = -temp_null_score;
         if null_score >= beta {
             return beta;
         }
     }
 
     if depth == 0 {
-        return quiescence(board, alpha, beta, is_maximizing, tt, context);
+        return quiescence_search(board, alpha, beta, tt, context);
     }
 
     let mut best_move = None;
     let legal_moves = board.generate_legal_moves();
+    
     if legal_moves.is_empty() {
         if board.is_king_in_check(board.to_move) {
-            // Checkmate: current player perde
-            let mate_score = MATE_VALUE - depth as i32; // Prefere mates mais rápidos
-            return if board.to_move == Color::White { -mate_score } else { mate_score };
+            // Checkmate: current player perde - sempre retorna negativo (perda)
+            return -(MATE_VALUE - depth as i32);
         } else {
             // Stalemate
             return 0;
         }
     }
+    
     let ordered_moves = order_moves(board, legal_moves, tt, context, depth);
+    let mut best_score = -50000; // Negamax: sempre maximiza
+    let mut moves_searched = 0;
 
-    if is_maximizing {
-        let mut max_eval = i32::MIN;
-        for mv in ordered_moves {
-            let mut temp_board = *board;
-            temp_board.make_move(mv);
-            
-            // Extensões de busca
-            let extension = if temp_board.is_king_in_check(!board.to_move) || mv.promotion.is_some() { 1 } else { 0 };
-            
-            let eval = alphabeta(&temp_board, depth - 1 + extension, alpha, beta, false, tt, context);
-            if eval > max_eval {
-                max_eval = eval;
-                best_move = Some(mv);
-                // Atualiza histórico para movimentos bons
-                if !board.is_capture(mv) {
-                    context.update_history(mv, depth);
-                }
-            }
-            alpha = alpha.max(eval);
-            if beta <= alpha { 
-                // Beta cutoff - adiciona killer move se não for captura
-                if !board.is_capture(mv) {
-                    context.add_killer(mv, depth);
-                }
-                break; 
+    for mv in ordered_moves {
+        let mut temp_board = *board;
+        temp_board.make_move(mv);
+        
+        // Futility Pruning - poda movimentos obviamente ruins em profundidades rasas
+        if depth <= 3 && !is_pv_node && !board.is_capture(mv) && !board.is_king_in_check(board.to_move) {
+            let static_eval = evaluation::evaluate(board); // Agora já é relativo ao jogador atual
+            let futility_margin = FUTILITY_MARGIN[depth as usize];
+            if static_eval + futility_margin <= alpha {
+                continue;
             }
         }
-        let entry_type = if max_eval <= original_alpha { EntryType::UpperBound }
-        else if max_eval >= beta { EntryType::LowerBound }
-        else { EntryType::Exact };
-        tt.store(board.zobrist_hash, best_move, max_eval, depth, entry_type);
-        max_eval
-    } else {
-        let mut min_eval = i32::MAX;
-        for mv in ordered_moves {
-            let mut temp_board = *board;
-            temp_board.make_move(mv);
-            
-            // Extensões de busca
-            let extension = if temp_board.is_king_in_check(!board.to_move) || mv.promotion.is_some() { 1 } else { 0 };
-            
-            let eval = alphabeta(&temp_board, depth - 1 + extension, alpha, beta, true, tt, context);
-            if eval < min_eval {
-                min_eval = eval;
-                best_move = Some(mv);
-                // Atualiza histórico para movimentos bons
-                if !board.is_capture(mv) {
-                    context.update_history(mv, depth);
-                }
+        
+        // Extensões de busca
+        let extension = if temp_board.is_king_in_check(!board.to_move) || mv.promotion.is_some() { 1 } else { 0 };
+        
+        let mut score;
+        
+        if moves_searched == 0 {
+            // Primeira jogada: busca completa
+            let first_depth = if depth > 1 { depth - 1 + extension } else { extension };
+            let first_score = pvs_search(&temp_board, first_depth, -beta, -alpha, tt, context, start_time, max_time_ms, is_pv_node);
+            score = -first_score;
+        } else {
+            // Late Move Reduction
+            let mut reduction = 0;
+            if depth >= LMR_MIN_DEPTH && moves_searched >= LMR_MIN_MOVES && !is_pv_node 
+                && !board.is_capture(mv) && !temp_board.is_king_in_check(!board.to_move) {
+                reduction = LMR_REDUCTION;
             }
-            beta = beta.min(eval);
-            if beta <= alpha { 
-                // Beta cutoff - adiciona killer move se não for captura
-                if !board.is_capture(mv) {
-                    context.add_killer(mv, depth);
-                }
-                break; 
+            
+            // Primeiro tenta busca com janela nula (PVS)
+            let search_depth = if depth > 1 + reduction { depth - 1 - reduction + extension } else { 0 };
+            let temp_score = pvs_search(&temp_board, search_depth, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false);
+            score = -temp_score;
+            
+            // Se falhou e é uma busca PV, re-busca com janela completa
+            if score > alpha && is_pv_node {
+                let full_depth = if depth > 1 { depth - 1 + extension } else { extension };
+                let full_score = pvs_search(&temp_board, full_depth, -beta, -alpha, tt, context, start_time, max_time_ms, true);
+                score = -full_score;
             }
         }
-        let entry_type = if min_eval <= original_alpha { EntryType::UpperBound }
-        else if min_eval >= beta { EntryType::LowerBound }
-        else { EntryType::Exact };
-        tt.store(board.zobrist_hash, best_move, min_eval, depth, entry_type);
-        min_eval
+        
+        moves_searched += 1;
+        
+        // Negamax: sempre maximiza o score (após negação)
+        if score > best_score {
+            best_score = score;
+            best_move = Some(mv);
+            if !board.is_capture(mv) {
+                context.update_history(mv, depth);
+            }
+        }
+        
+        alpha = alpha.max(score);
+        if alpha >= beta {
+            if !board.is_capture(mv) {
+                context.add_killer(mv, depth);
+            }
+            break; // Beta cutoff
+        }
     }
+
+    let entry_type = if best_score <= original_alpha { EntryType::UpperBound }
+    else if best_score >= beta { EntryType::LowerBound }
+    else { EntryType::Exact };
+    
+    tt.store(board.zobrist_hash, best_move, best_score, depth, entry_type);
+    best_score
 }
 
-// Nova função: Quiescence Search (busca só capturas para evitar horizon effect)
-fn quiescence(board: &Board, mut alpha: i32, mut beta: i32, is_maximizing: bool, tt: &mut TranspositionTable, context: &mut SearchContext) -> i32 {
-    let stand_pat = evaluation::evaluate(board);
+// Quiescence Search melhorada (busca só capturas para evitar horizon effect)
+fn quiescence_search(board: &Board, mut alpha: i32, beta: i32, tt: &mut TranspositionTable, context: &mut SearchContext) -> i32 {
+    let stand_pat = evaluation::evaluate(board); // Já é relativo ao jogador atual
     
-    // Delta pruning - não avalia capturas que não podem melhorar alpha/beta
-    if is_maximizing {
-        if stand_pat + 900 < alpha { // 900 = valor da rainha, maior peça capturável
-            return stand_pat;
-        }
-        alpha = alpha.max(stand_pat);
-    } else {
-        if stand_pat - 900 > beta {
-            return stand_pat;
-        }
-        beta = beta.min(stand_pat);
+    if stand_pat >= beta {
+        return beta;
     }
-    if alpha >= beta {
-        return stand_pat;
+    
+    if alpha < stand_pat {
+        alpha = stand_pat;
+    }
+    
+    // Delta pruning - não avalia capturas que não podem melhorar alpha
+    if stand_pat + 900 < alpha {
+        return alpha;
     }
 
     // Gera só capturas (pseudo-legais, filtra legais)
@@ -273,29 +375,18 @@ fn quiescence(board: &Board, mut alpha: i32, mut beta: i32, is_maximizing: bool,
 
     let ordered_captures = order_moves(board, captures, tt, context, 0); // Usa mesma ordenação MVV-LVA
 
-    if is_maximizing {
-        let mut max_eval = stand_pat;
-        for mv in ordered_captures {
-            if !board.is_legal_move(mv) { continue; }
-            let mut temp_board = *board;
-            temp_board.make_move(mv);
-            let eval = quiescence(&temp_board, alpha, beta, false, tt, context);
-            max_eval = max_eval.max(eval);
-            alpha = alpha.max(eval);
-            if beta <= alpha { break; }
+    for mv in ordered_captures {
+        if !board.is_legal_move(mv) { continue; }
+        let mut temp_board = *board;
+        temp_board.make_move(mv);
+        let score = -quiescence_search(&temp_board, -beta, -alpha, tt, context);
+        if score >= beta {
+            return beta;
         }
-        max_eval
-    } else {
-        let mut min_eval = stand_pat;
-        for mv in ordered_captures {
-            if !board.is_legal_move(mv) { continue; }
-            let mut temp_board = *board;
-            temp_board.make_move(mv);
-            let eval = quiescence(&temp_board, alpha, beta, true, tt, context);
-            min_eval = min_eval.min(eval);
-            beta = beta.min(eval);
-            if beta <= alpha { break; }
+        if score > alpha {
+            alpha = score;
         }
-        min_eval
     }
+    
+    alpha
 }
