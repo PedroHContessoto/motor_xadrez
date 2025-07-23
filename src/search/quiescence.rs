@@ -1,69 +1,68 @@
-// Quiescence Search aprimorada com SEE filtering
+// quiescence.rs - VERSÃO CORRIGIDA
+// Quiescence Search aprimorada com SEE filtering melhorado
+
 use crate::{board::Board, evaluation, transposition::TranspositionTable, types::{Move, Color}};
 use super::{SearchContext, order_moves, see::see};
 
 const MATE_VALUE: i32 = 99999;
-const SEE_THRESHOLD: i32 = -50; // Era -100, agora -50 (menos permissivo)
+// CORREÇÃO 1: SEE threshold mais restritivo
+const SEE_THRESHOLD: i32 = -10; // Era -50, agora -10 (muito mais restritivo)
 
-/// Quiescence Search - busca táticas até posição "quieta" 
+/// Quiescence Search - busca táticas até posição "quieta"
 pub fn quiescence_search(
-    board: &Board, 
-    mut alpha: i32, 
-    beta: i32, 
-    tt: &mut TranspositionTable, 
+    board: &Board,
+    mut alpha: i32,
+    beta: i32,
+    tt: &mut TranspositionTable,
     context: &mut SearchContext
 ) -> i32 {
-    quiescence_search_with_ply(board, alpha, beta, 0, 4, tt, context) // Aumentado para 4
+    // CORREÇÃO 2: Profundidade quiescence maior
+    quiescence_search_with_ply(board, alpha, beta, 0, 16, tt, context) // Era 8, agora 16
 }
 
 /// Quiescence search com limite de ply para prevenir recursão infinita
 fn quiescence_search_with_ply(
-    board: &Board, 
-    mut alpha: i32, 
-    beta: i32, 
+    board: &Board,
+    mut alpha: i32,
+    beta: i32,
     ply: i32,
     max_ply: i32,
-    tt: &mut TranspositionTable, 
+    tt: &mut TranspositionTable,
     context: &mut SearchContext
 ) -> i32 {
-    
+
     // Termina se atingiu limite de ply ou stop flag
     if ply >= max_ply || context.should_stop {
         return evaluation::evaluate(board);
     }
     let in_check = board.is_king_in_check(board.to_move);
-    
+
     // Stand pat - avaliação da posição quieta
     let stand_pat = evaluation::evaluate(board);
-    
+
     // Beta cutoff
     if !in_check && stand_pat >= beta {
         return beta;
     }
-    
+
     // Atualiza alpha
     if !in_check && alpha < stand_pat {
         alpha = stand_pat;
     }
-    
-    // Delta pruning - reduzido para considerar capturas de rainha (era 900, agora 700)
-    // Exceção: não faz delta pruning em xeque
-    if !in_check && stand_pat + 700 < alpha {
+
+    // CORREÇÃO 3: Delta pruning mais generoso
+    if !in_check && stand_pat + 1000 < alpha { // Era 700, agora 1000
         return alpha;
     }
-    
+
     // Gera capturas e movimentos de xeque
     let mut tactical_moves = Vec::new();
-    
+
     if in_check {
         // Em xeque: considera todos os moves legais
         tactical_moves.extend(board.generate_legal_moves());
     } else {
         // Não em xeque: só capturas e checks
-        // Capturas de peão (mais eficiente)
-        tactical_moves.extend(crate::moves::pawn::generate_pawn_captures(board));
-        
-        // Capturas de outras peças
         let all_moves = board.generate_legal_moves();
         for mv in all_moves {
             if board.is_capture(mv) {
@@ -76,15 +75,25 @@ fn quiescence_search_with_ply(
             }
         }
     }
-    
-    // Remove capturas obviamente perdedoras com SEE, exceto capturas de rainha
+
+    // CORREÇÃO 4: Filtragem SEE mais inteligente
     if !in_check {
         tactical_moves.retain(|&mv| {
             if board.is_capture(mv) {
-                // Sempre considerar capturas de rainha
+                // Sempre considerar capturas de peças valiosas
                 if let Some(captured_piece) = board.get_piece_on_square(mv.to) {
-                    if captured_piece == crate::types::PieceKind::Queen {
-                        return true;
+                    match captured_piece {
+                        crate::types::PieceKind::Queen => return true,  // Sempre captura rainha
+                        crate::types::PieceKind::Rook => return true,   // Sempre captura torre
+                        crate::types::PieceKind::Bishop | crate::types::PieceKind::Knight => {
+                            // Para peças menores, usa SEE mais permissivo
+                            return see(board, mv) >= -50;
+                        },
+                        crate::types::PieceKind::Pawn => {
+                            // Para peões, usa threshold normal
+                            return see(board, mv) >= SEE_THRESHOLD;
+                        },
+                        _ => return see(board, mv) >= SEE_THRESHOLD,
                     }
                 }
                 see(board, mv) >= SEE_THRESHOLD
@@ -93,33 +102,43 @@ fn quiescence_search_with_ply(
             }
         });
     }
-    
+
     // Ordena movimentos (capturas boas primeiro)
     let ordered_moves = order_moves(board, tactical_moves, tt, context, 0);
-    
+
     for mv in ordered_moves {
         // Valida legalidade
         if !board.is_legal_move(mv) {
             continue;
         }
-        
+
+        // CORREÇÃO 5: Pruning adicional para capturas obviamente ruins
+        if !in_check && board.is_capture(mv) {
+            let see_value = see(board, mv);
+
+            // Se captura é muito perdedora e não melhora alpha significativamente
+            if see_value < -100 && stand_pat + see_value + 50 < alpha {
+                continue;
+            }
+        }
+
         // Faz movimento e busca recursivamente
         let mut temp_board = *board;
         temp_board.make_move(mv);
-        
+
         let score = -quiescence_search_with_ply(&temp_board, -beta, -alpha, ply + 1, max_ply, tt, context);
-        
+
         // Beta cutoff
         if score >= beta {
             return beta;
         }
-        
+
         // Atualiza alpha
         if score > alpha {
             alpha = score;
         }
     }
-    
+
     alpha
 }
 
@@ -130,19 +149,19 @@ pub fn gives_check_fast(board: &Board, mv: Move) -> bool {
     if piece_kind.is_none() {
         return false;
     }
-    
-    let enemy_king_bb = board.kings & if board.to_move == Color::White { 
-        board.black_pieces 
-    } else { 
-        board.white_pieces 
+
+    let enemy_king_bb = board.kings & if board.to_move == Color::White {
+        board.black_pieces
+    } else {
+        board.white_pieces
     };
-    
+
     if enemy_king_bb == 0 {
         return false;
     }
-    
+
     let enemy_king_square = enemy_king_bb.trailing_zeros() as u8;
-    
+
     // Verifica se a peça movida pode atacar o rei inimigo da nova posição
     match piece_kind.unwrap() {
         crate::types::PieceKind::Knight => {
@@ -154,7 +173,7 @@ pub fn gives_check_fast(board: &Board, mv: Move) -> bool {
             let mut temp_occ = board.white_pieces | board.black_pieces;
             temp_occ &= !(1u64 << mv.from); // Remove peça da origem
             temp_occ |= 1u64 << mv.to;      // Adiciona na destino
-            
+
             let attacks = crate::moves::sliding::get_bishop_attacks(mv.to, temp_occ);
             (attacks & (1u64 << enemy_king_square)) != 0
         },
@@ -163,7 +182,7 @@ pub fn gives_check_fast(board: &Board, mv: Move) -> bool {
             let mut temp_occ = board.white_pieces | board.black_pieces;
             temp_occ &= !(1u64 << mv.from);
             temp_occ |= 1u64 << mv.to;
-            
+
             let attacks = crate::moves::sliding::get_rook_attacks(mv.to, temp_occ);
             (attacks & (1u64 << enemy_king_square)) != 0
         },
@@ -171,29 +190,79 @@ pub fn gives_check_fast(board: &Board, mv: Move) -> bool {
             // Ataques de peão
             let rank_diff = (mv.to / 8) as i8 - (enemy_king_square / 8) as i8;
             let file_diff = (mv.to % 8) as i8 - (enemy_king_square % 8) as i8;
-            
+
             if board.to_move == Color::White {
                 rank_diff == 1 && file_diff.abs() == 1
             } else {
                 rank_diff == -1 && file_diff.abs() == 1
             }
         },
-        _ => false, // Rei não dá xeque direto normalmente
+        _ => {
+            // CORREÇÃO 6: Verifica ataques descobertos para rei
+            if piece_kind.unwrap() == crate::types::PieceKind::King {
+                return false; // Rei não dá xeque direto normalmente
+            }
+
+            // Para outras peças, verifica se o movimento descobre ataque
+            check_discovered_attack(board, mv, enemy_king_square)
+        }
     }
+}
+
+/// CORREÇÃO 7: Nova função para verificar ataques descobertos
+fn check_discovered_attack(board: &Board, mv: Move, enemy_king_square: u8) -> bool {
+    // Verifica se mover a peça descobre ataque de outra peça nossa ao rei inimigo
+    let our_color = board.to_move;
+    let our_pieces = if our_color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    // Verifica se há peças nossas que podem atacar o rei após o movimento
+    let our_sliders = (board.rooks | board.bishops | board.queens) & our_pieces;
+    let mut slider_bb = our_sliders;
+
+    while slider_bb != 0 {
+        let slider_sq = slider_bb.trailing_zeros() as u8;
+        slider_bb &= slider_bb - 1;
+
+        if slider_sq == mv.from {
+            continue; // Pula a peça que está se movendo
+        }
+
+        // Simula o movimento e verifica se agora ataca o rei
+        let mut temp_occ = board.white_pieces | board.black_pieces;
+        temp_occ &= !(1u64 << mv.from); // Remove peça da origem
+        temp_occ |= 1u64 << mv.to;      // Adiciona na destino
+
+        let piece_bb = 1u64 << slider_sq;
+        if (board.bishops | board.queens) & piece_bb != 0 {
+            let attacks = crate::moves::sliding::get_bishop_attacks(slider_sq, temp_occ);
+            if (attacks & (1u64 << enemy_king_square)) != 0 {
+                return true;
+            }
+        }
+
+        if (board.rooks | board.queens) & piece_bb != 0 {
+            let attacks = crate::moves::sliding::get_rook_attacks(slider_sq, temp_occ);
+            if (attacks & (1u64 << enemy_king_square)) != 0 {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Versão alternativa de quiescence para uso em análise
 pub fn quiescence_search_depth_limited(
-    board: &Board, 
-    mut alpha: i32, 
-    beta: i32, 
+    board: &Board,
+    mut alpha: i32,
+    beta: i32,
     depth_left: i32,
-    tt: &mut TranspositionTable, 
+    tt: &mut TranspositionTable,
     context: &mut SearchContext
 ) -> i32 {
     if depth_left <= 0 {
         return evaluation::evaluate(board);
     }
-    
+
     quiescence_search(board, alpha, beta, tt, context)
 }

@@ -160,7 +160,8 @@ fn evaluate_knights_enhanced(board: &Board, mut knight_bb: Bitboard, color: Colo
             let outpost_bonus = match game_phase {
                 GamePhase::Opening => 20,
                 GamePhase::Middlegame => 30,
-                GamePhase::Endgame => 40, // Mais valioso no endgame
+                GamePhase::Endgame => 40,
+                GamePhase::LateEndgame => 40,
             };
             score += outpost_bonus;
         }

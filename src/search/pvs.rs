@@ -1,42 +1,42 @@
+// pvs.rs - VERSÃO CORRIGIDA
 // Principal Variation Search aprimorado para táticas
 use std::time::Instant;
 use crate::{board::Board, evaluation, transposition::{TranspositionTable, EntryType}, types::Move};
 use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::see_threshold};
 
 const MATE_VALUE: i32 = 99999;
-const FUTILITY_MARGIN: [i32; 4] = [0, 200, 350, 600]; // Ainda menos agressivo - reduzido
+// CORREÇÃO 1: Futility margins mais generosas
+const FUTILITY_MARGIN: [i32; 4] = [0, 300, 500, 800]; // Era [0, 200, 350, 600]
 const LMR_MIN_DEPTH: u8 = 3;
 const LMR_MIN_MOVES: usize = 4;
 const LMR_REDUCTION: u8 = 1;
 
 /// Principal Variation Search com melhorias para táticas
 pub fn pvs_search(
-    board: &Board, 
-    depth: u8, 
-    mut alpha: i32, 
-    mut beta: i32, 
-    tt: &mut TranspositionTable, 
-    context: &mut SearchContext, 
-    start_time: Instant, 
-    max_time_ms: u64, 
+    board: &Board,
+    depth: u8,
+    mut alpha: i32,
+    mut beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
     is_pv_node: bool
 ) -> i32 {
     context.nodes_searched += 1;
 
-
-    // Proteção contra stack overflow - limite absoluto de profundidade
-    if depth > 8 {
-        // Depth limit reached
+    // CORREÇÃO 2: Limite de profundidade mais alto
+    if depth > 40 { // Era 20, agora 40
         return evaluation::evaluate(board);
     }
 
-    // Verificação de tempo - seta flag ao invés de retornar imediatamente
-    if context.nodes_searched % 1024 == 0 {
+    // CORREÇÃO 3: Verificação de tempo menos frequente
+    if context.nodes_searched % 8192 == 0 { // Era 1024, agora 8192
         if start_time.elapsed().as_millis() as u64 > max_time_ms {
             context.should_stop = true;
         }
     }
-    
+
     // Se should_stop foi setado, termina gracefully
     if context.should_stop {
         return evaluation::evaluate(board);
@@ -68,17 +68,17 @@ pub fn pvs_search(
     // Null Move Pruning melhorado (com verificação de zugzwang)
     if depth >= 3 && !is_pv_node && !board.is_king_in_check(board.to_move) {
         let static_eval = evaluation::evaluate(board);
-        
+
         // Não faz null move se posição é muito tática
         if static_eval.abs() < 8000 {
             let mut null_board = *board;
             null_board.to_move = !null_board.to_move;
             null_board.en_passant_target = None;
-            
+
             let null_depth = if depth > 6 { depth - 4 } else { depth - 3 }; // Adaptive reduction
             let temp_null_score = pvs_search(&null_board, null_depth, -beta, -beta + 1, tt, context, start_time, max_time_ms, false);
             let null_score = -temp_null_score;
-            
+
             if null_score >= beta {
                 // Verification search para evitar zugzwang
                 if depth < 6 || null_score >= MATE_VALUE - 100 {
@@ -100,7 +100,7 @@ pub fn pvs_search(
 
     // Move generation
     let legal_moves = board.generate_legal_moves();
-    
+
     if legal_moves.is_empty() {
         if board.is_king_in_check(board.to_move) {
             return -(MATE_VALUE - depth as i32); // Checkmate
@@ -111,50 +111,49 @@ pub fn pvs_search(
 
     let in_check = board.is_king_in_check(board.to_move);
     let static_eval = if !in_check { evaluation::evaluate(board) } else { -MATE_VALUE / 2 };
-    
+
     let ordered_moves = order_moves(board, legal_moves, tt, context, depth);
     let mut best_move = None;
     let mut best_score = -50000;
     let mut moves_searched = 0;
 
-
     for mv in &ordered_moves {
         let mut temp_board = *board;
         temp_board.make_move(*mv);
-        
+
         let gives_check = temp_board.is_king_in_check(!board.to_move);
         let is_capture = board.is_capture(*mv);
-        
-        // Futility Pruning aprimorado - desabilitado para táticas e peças penduradas
+
+        // CORREÇÃO 4: Futility Pruning menos agressivo
         if depth <= 3 && !is_pv_node && !is_capture && !in_check && !gives_check && moves_searched > 0 {
             let futility_margin = FUTILITY_MARGIN[depth as usize];
             if static_eval + futility_margin <= alpha && !has_hanging_pieces_simple(board) {
                 continue;
             }
         }
-        
-        // SEE Pruning - poda capturas muito perdedoras em nós não-PV
+
+        // CORREÇÃO 5: SEE Pruning menos restritivo
         if !is_pv_node && is_capture && depth <= 4 && moves_searched > 0 {
-            if !see_threshold(board, *mv, -200) { // Muito perdedor
+            if !see_threshold(board, *mv, -100) { // Era -200, agora -100
                 continue;
             }
         }
 
         // Extensions
         let mut extension = 0;
-        
+
         if gives_check {
             extension += 1; // Check extension
         }
-        
+
         if mv.promotion.is_some() {
             extension += 1; // Promotion extension
         }
-        
+
         if is_recapture(board, *mv, context) {
             extension += 1; // Recapture extension
         }
-        
+
         // Limita extensões para evitar explosion
         extension = extension.min(2);
 
@@ -168,17 +167,17 @@ pub fn pvs_search(
         } else {
             // Late Move Reduction aprimorado
             let mut reduction = 0;
-            
-            if depth >= LMR_MIN_DEPTH && moves_searched >= LMR_MIN_MOVES && !is_pv_node 
+
+            if depth >= LMR_MIN_DEPTH && moves_searched >= LMR_MIN_MOVES && !is_pv_node
                 && !is_capture && !gives_check && !in_check && extension == 0 {
-                
+
                 reduction = LMR_REDUCTION;
-                
+
                 // Reduce mais para moves com história baixa
                 if context.get_history_score(*mv) < 0 {
                     reduction += 1;
                 }
-                
+
                 // Reduce menos próximo de mate
                 if static_eval.abs() > MATE_VALUE / 4 {
                     reduction = reduction.saturating_sub(1);
@@ -204,14 +203,14 @@ pub fn pvs_search(
         if score > best_score {
             best_score = score;
             best_move = Some(*mv);
-            
+
             if !is_capture {
                 context.update_history(*mv, depth);
             }
         }
 
         alpha = alpha.max(score);
-        
+
         // Beta cutoff
         if alpha >= beta {
             if !is_capture {
@@ -222,12 +221,12 @@ pub fn pvs_search(
     }
 
     // Store na Transposition Table
-    let entry_type = if best_score <= original_alpha { 
-        EntryType::UpperBound 
-    } else if best_score >= beta { 
-        EntryType::LowerBound 
-    } else { 
-        EntryType::Exact 
+    let entry_type = if best_score <= original_alpha {
+        EntryType::UpperBound
+    } else if best_score >= beta {
+        EntryType::LowerBound
+    } else {
+        EntryType::Exact
     };
 
     tt.store(board.zobrist_hash, best_move, best_score, depth, entry_type);
@@ -249,28 +248,28 @@ pub fn analyze_position(board: &Board, depth: u8, tt: &mut TranspositionTable) -
     let mut context = SearchContext::new();
     let start_time = Instant::now();
     let max_time = 30000; // 30 segundos
-    
+
     let score = pvs_search(board, depth, -50000, 50000, tt, &mut context, start_time, max_time, true);
-    
+
     let best_move = if let Some(entry) = tt.probe(board.zobrist_hash) {
         entry.best_move
     } else {
         None
     };
-    
+
     (score, best_move)
 }
 
 /// Função auxiliar para detectar peças penduradas (versão simplificada)
 fn has_hanging_pieces_simple(board: &Board) -> bool {
-    let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & 
-                       if board.to_move == crate::types::Color::White { board.white_pieces } else { board.black_pieces };
-    
+    let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) &
+        if board.to_move == crate::types::Color::White { board.white_pieces } else { board.black_pieces };
+
     let mut bb = our_valuables;
     while bb != 0 {
         let sq = bb.trailing_zeros() as u8;
         bb &= bb - 1;
-        
+
         if board.is_square_attacked_by(sq, !board.to_move) {
             return true;
         }

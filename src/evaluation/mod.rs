@@ -7,29 +7,19 @@ pub mod threats;
 pub mod mobility;
 pub mod pawn_structure;
 pub mod game_phase;
+pub mod endgame_patterns;
+pub mod utils;
 
 use crate::{board::Board, types::Color};
 
 /// Função principal de avaliação (interface pública)
 pub fn evaluate(board: &Board) -> i32 {
-    // Versão simplificada apenas com material para estabilidade
-    let mut white_material = 0;
-    let mut black_material = 0;
+    let game_phase = game_phase::detect_game_phase(board);
     
-    // Material básico
-    white_material += (board.pawns & board.white_pieces).count_ones() as i32 * 100;
-    white_material += (board.knights & board.white_pieces).count_ones() as i32 * 320;
-    white_material += (board.bishops & board.white_pieces).count_ones() as i32 * 330;
-    white_material += (board.rooks & board.white_pieces).count_ones() as i32 * 500;
-    white_material += (board.queens & board.white_pieces).count_ones() as i32 * 900;
+    let white_score = evaluate_color(board, Color::White, &game_phase);
+    let black_score = evaluate_color(board, Color::Black, &game_phase);
     
-    black_material += (board.pawns & board.black_pieces).count_ones() as i32 * 100;
-    black_material += (board.knights & board.black_pieces).count_ones() as i32 * 320;
-    black_material += (board.bishops & board.black_pieces).count_ones() as i32 * 330;
-    black_material += (board.rooks & board.black_pieces).count_ones() as i32 * 500;
-    black_material += (board.queens & board.black_pieces).count_ones() as i32 * 900;
-    
-    let final_score = white_material - black_material;
+    let final_score = white_score - black_score;
     
     // Retorna relativo ao jogador atual
     if board.to_move == Color::White {
@@ -63,8 +53,9 @@ fn evaluate_color(board: &Board, color: Color, game_phase: &game_phase::GamePhas
         game_phase::GamePhase::Opening => {
             score += evaluate_development(board, color);
         },
-        game_phase::GamePhase::Endgame => {
+        game_phase::GamePhase::Endgame | game_phase::GamePhase::LateEndgame => {
             score += evaluate_king_activity(board, color);
+            score += endgame_patterns::evaluate_king_activity_advanced(board, color);
         },
         _ => {}
     }

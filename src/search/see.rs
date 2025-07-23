@@ -36,7 +36,7 @@ pub fn see(board: &Board, mv: Move) -> i32 {
 /// Versão recursiva para calcular recapturas (com limite de profundidade)
 fn see_recapture(board: &Board, target_square: u8, side_to_move: Color, last_attacker_value: i32, depth: u8) -> i32 {
     // Limita recursão para evitar stack overflow
-    if depth > 10 {
+    if depth > 16 {
         return 0;
     }
     // Encontra a peça menos valiosa que pode recapturar

@@ -8,7 +8,6 @@ pub mod evaluation;
 pub mod search;
 pub mod transposition;
 pub mod opening_book;
-pub mod opening_expansion;
 
 pub use types::*;
 pub use board::Board;

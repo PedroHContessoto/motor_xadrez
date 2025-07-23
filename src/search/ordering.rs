@@ -36,7 +36,7 @@ pub fn order_moves(
         }
         // 4. Movimentos defensivos (nova prioridade alta)
         else if is_defensive_move(board, mv) {
-            score = 25_000;
+            score = 15_000;
         }
         // 5. Killers (moves que causaram cutoffs)
         else if context.is_killer(mv, depth) {

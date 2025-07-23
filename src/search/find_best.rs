@@ -1,192 +1,265 @@
+// find_best.rs - VERSÃO CORRIGIDA
+// Busca iterativa com melhor gestão de tempo e profundidade
+
 use std::time::Instant;
-use std::io::{self, Write};
-use crate::board::Board;
-use crate::evaluation;
-use crate::transposition::TranspositionTable;
-use super::{SearchContext, aspiration_search, pvs_search};
+use crate::{board::Board, evaluation, transposition::TranspositionTable, types::Move};
+use super::{SearchContext, aspiration::aspiration_search, pvs::pvs_search, ordering::order_root_moves};
 
-pub fn find_best_move(board: &Board, max_depth: u8, tt: &mut TranspositionTable) -> Option<(crate::types::Move, i32)> { // Use full path para Move
-    find_best_move_with_time(board, max_depth, 5000, tt)
-}
-
-pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u64, tt: &mut TranspositionTable) -> Option<(crate::types::Move, i32)> {
+/// Encontra o melhor movimento com limite de tempo
+pub fn find_best_move_with_time(
+    board: &Board,
+    max_depth: u8,
+    mut max_time_ms: u64,
+    tt: &mut TranspositionTable
+) -> Option<(Move, i32)> {
     let start_time = Instant::now();
     let mut context = SearchContext::new();
     let mut best_move = None;
     let mut best_score = 0;
     let mut prev_score = 0;
     let mut stable_count = 0;
-    
-    // Garante que sempre temos um movimento de fallback
+
     let legal_moves = board.generate_legal_moves();
     if legal_moves.is_empty() {
-        return None; // Mate/stalemate
+        return None;
     }
     let mut fallback_move = legal_moves[0];
     let mut fallback_score = evaluation::evaluate(board);
 
-    // Detecta se é posição tática para ajuste de tempo
     let is_tactical_position = detect_tactical_position(board);
-    let tactical_time_multiplier = if is_tactical_position { 1.5 } else { 1.0 };
+    // CORREÇÃO 1: Multiplicador de tempo mais moderado
+    let tactical_time_multiplier = if is_tactical_position { 1.2 } else { 1.0 }; // Era 1.3, agora 1.2
     let effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
-    
-    for depth in 1..=max_depth.min(8) { // Limite de profundidade para evitar stack overflow
-        let elapsed = start_time.elapsed().as_millis() as u64;
 
-        // Time management adaptado para posições táticas
-        if depth > 12 && elapsed > effective_time_limit {
-            // Em posições táticas, permite mais tempo até depth 18
-            if !is_tactical_position || depth > 18 {
+    // CRÍTICO: PROFUNDIDADE MÍNIMA ABSOLUTA 7 (não pode parar antes)
+    const MIN_DEPTH_ABSOLUTE: u8 = 7;
+
+    // CORREÇÃO 2: Profundidade mínima mais alta e limite maior
+    for depth in 1..=max_depth.min(50) { // Era 32, agora 50
+        let elapsed = start_time.elapsed().as_millis() as u64;
+        
+        // Só permite parar por tempo se JÁ atingiu profundidade mínima
+        if depth >= MIN_DEPTH_ABSOLUTE {
+            if elapsed > effective_time_limit {
+                if !is_tactical_position || depth > 14 {
+                    break;
+                }
+            }
+            
+            // Timeout absoluto mais generoso (só após depth mínima)
+            let absolute_limit = if is_tactical_position {
+                max_time_ms.saturating_mul(3)
+            } else {
+                max_time_ms.saturating_mul(2)
+            };
+
+            if elapsed > absolute_limit {
                 break;
             }
         }
         
-        // Timeout absoluto mais generoso para posições táticas
-        let absolute_limit = if is_tactical_position {
-            max_time_ms * 4 // 4x mais tempo em posições táticas críticas
-        } else {
-            max_time_ms * 3
-        };
-        
-        if elapsed > absolute_limit {
+        // TIMEOUT EXTREMO: Só para se passar muito tempo E já ter depth mínima
+        if elapsed > max_time_ms.saturating_mul(10) && depth >= MIN_DEPTH_ABSOLUTE {
             break;
         }
 
-        // Reset stop flag para cada profundidade
-        context.should_stop = false;
-        
-        let score = if depth > 2 {
+        // Usa aspiration search para profundidades maiores
+        let score = if depth >= 4 && best_move.is_some() {
             aspiration_search(board, depth, prev_score, tt, &mut context, start_time, max_time_ms)
         } else {
             pvs_search(board, depth, -50000, 50000, tt, &mut context, start_time, max_time_ms, true)
         };
-        
-        // Se parou por timeout, usa o que temos
+
+        // Verifica se a busca foi interrompida
         if context.should_stop {
             break;
         }
 
+        // Atualiza melhor movimento
         if let Some(entry) = tt.probe(board.zobrist_hash) {
             if let Some(mv) = entry.best_move {
                 if board.is_legal_move(mv) {
-                    if Some(mv) == context.prev_best_move {
-                        stable_count += 1;
-                        if stable_count >= 3 {
-                            max_time_ms = (max_time_ms * 3) / 4; // Redução menor
-                        }
-                    } else {
-                        stable_count = 0;
-                    }
-                    context.prev_best_move = Some(mv);
-
                     best_move = Some(mv);
                     best_score = score;
-                    fallback_move = mv; // Atualiza fallback
+                    fallback_move = mv;
                     fallback_score = score;
-                } else {
-                    // Move da TT não é legal, mas ainda podemos usar o score
-                    if best_move.is_none() {
-                        best_move = Some(fallback_move);
-                        best_score = score;
-                    }
-                    // Não imprime info se move não é legal
-                    continue;
                 }
-                
-                // Só imprime se temos um move legal válido
-                let nps = if elapsed > 0 { context.nodes_searched * 1000 / elapsed } else { 0 }; // Limpado parens
-                let time_ms = elapsed;
-
-                let display_score = score.clamp(-10000, 10000);
-                println!("info depth {} score cp {} nodes {} nps {} time {} pv {}",
-                         depth, display_score, context.nodes_searched, nps, time_ms, mv);
-                io::stdout().flush().ok();
             }
+        }
+
+        // CORREÇÃO 5: Critério de estabilidade mais relaxado
+        if (score - prev_score).abs() < 20 { // Era 15, agora 20
+            stable_count += 1;
+        } else {
+            stable_count = 0;
+        }
+
+        // CORREÇÃO 6: Para busca se muito estável e profundidade razoável (após mínima)
+        if stable_count >= 3 && depth >= 12 && depth >= MIN_DEPTH_ABSOLUTE {
+            break;
         }
 
         prev_score = score;
-    }
 
-    // Garante que sempre retornamos um movimento válido
-    if best_move.is_none() {
-        best_move = Some(fallback_move);
-        best_score = fallback_score;
-    }
+        // Informações de debug
+        if let Some(entry) = tt.probe(board.zobrist_hash) {
+            if let Some(mv) = entry.best_move {
+                let pv_str = extract_pv(board, tt, 5);
+                println!("info depth {} score cp {} nodes {} nps {} time {} pv {}",
+                         depth,
+                         score,
+                         context.nodes_searched,
+                         if elapsed > 0 { context.nodes_searched * 1000 / elapsed } else { 0 },
+                         elapsed,
+                         pv_str
+                );
+            }
+        }
 
-    best_move.map(|mv| (mv, best_score))
-}
+        // CORREÇÃO 7: Gestão de tempo mais inteligente (SÓ APÓS profundidade mínima)
+        if depth >= MIN_DEPTH_ABSOLUTE {
+            let time_per_depth = if depth > 1 { elapsed / (depth as u64) } else { elapsed };
+            let estimated_next_time = time_per_depth * 3; // Estima próxima profundidade
 
-/// Detecta se a posição atual é tática (precisa de mais tempo/profundidade)
-fn detect_tactical_position(board: &Board) -> bool {
-    let our_color = board.to_move;
-    let enemy_color = !our_color;
-    
-    // 1. Estamos em xeque?
-    if board.is_king_in_check(our_color) {
-        return true;
-    }
-    
-    // 2. Há peças penduradas (atacadas sem defesa)?
-    let our_pieces = if our_color == crate::types::Color::White { 
-        board.white_pieces 
-    } else { 
-        board.black_pieces 
-    };
-    
-    let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
-    let mut hanging_count = 0;
-    let mut attacked_count = 0;
-    
-    let mut bb = our_valuables;
-    while bb != 0 {
-        let sq = bb.trailing_zeros() as u8;
-        bb &= bb - 1;
-        
-        if board.is_square_attacked_by(sq, enemy_color) {
-            attacked_count += 1;
-            if !board.is_square_attacked_by(sq, our_color) {
-                hanging_count += 1;
+            if elapsed + estimated_next_time > effective_time_limit {
+                break;
             }
         }
     }
-    
-    // 3. Muitas peças atacadas indica complexidade tática
-    if hanging_count > 0 || attacked_count > 2 {
+
+    // Retorna o melhor movimento encontrado
+    if let Some(mv) = best_move {
+        Some((mv, best_score))
+    } else {
+        Some((fallback_move, fallback_score))
+    }
+}
+
+/// Versão simplificada sem limite de tempo
+pub fn find_best_move(board: &Board, depth: u8, tt: &mut TranspositionTable) -> Option<(Move, i32)> {
+    find_best_move_with_time(board, depth, u64::MAX, tt)
+}
+
+/// Detecta se a posição é tática
+fn detect_tactical_position(board: &Board) -> bool {
+    // 1. Verifica se está em xeque
+    if board.is_king_in_check(board.to_move) {
         return true;
     }
-    
-    // 4. Verifica se o inimigo também tem peças penduradas (oportunidades táticas)
-    let enemy_pieces = if enemy_color == crate::types::Color::White { 
-        board.white_pieces 
-    } else { 
-        board.black_pieces 
-    };
-    
-    let enemy_valuables = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
-    let mut enemy_hanging = 0;
-    
-    let mut enemy_bb = enemy_valuables;
-    while enemy_bb != 0 {
-        let sq = enemy_bb.trailing_zeros() as u8;
-        enemy_bb &= enemy_bb - 1;
-        
-        if board.is_square_attacked_by(sq, our_color) && 
-           !board.is_square_attacked_by(sq, enemy_color) {
-            enemy_hanging += 1;
+
+    // 2. Verifica se há peças penduradas
+    if has_hanging_pieces(board) {
+        return true;
+    }
+
+    // 3. Verifica se há capturas vantajosas
+    let legal_moves = board.generate_legal_moves();
+    for mv in legal_moves.iter().take(15) { // Verifica apenas os primeiros 15
+        if board.is_capture(*mv) {
+            // Usa SEE simplificado
+            if see_simple(board, *mv) > 0 {
+                return true;
+            }
+        }
+
+        // Verifica se dá xeque
+        let mut temp_board = *board;
+        temp_board.make_move(*mv);
+        if temp_board.is_king_in_check(!board.to_move) {
+            return true;
         }
     }
-    
-    if enemy_hanging > 0 {
+
+    // 4. Verifica densidade de peças (posições abertas são mais táticas)
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    if total_pieces < 20 { // Menos de 20 peças = posição aberta
         return true;
     }
-    
-    // 5. Posições de final com poucos peões são complexas
-    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
-    let total_pawns = board.pawns.count_ones();
-    
-    if total_pieces <= 10 && total_pawns <= 4 {
-        return true; // Finais técnicos complexos
-    }
-    
+
     false
+}
+
+/// Verifica se há peças penduradas
+fn has_hanging_pieces(board: &Board) -> bool {
+    let our_color = board.to_move;
+    let enemy_color = !our_color;
+    let our_pieces = if our_color == crate::types::Color::White {
+        board.white_pieces
+    } else {
+        board.black_pieces
+    };
+
+    // Verifica peças valiosas
+    let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
+    let mut bb = our_valuables;
+
+    while bb != 0 {
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+
+        // Se atacada pelo inimigo e não defendida por nós
+        if board.is_square_attacked_by(sq, enemy_color) &&
+            !board.is_square_attacked_by(sq, our_color) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// SEE simplificado
+fn see_simple(board: &Board, mv: Move) -> i32 {
+    if !board.is_capture(mv) {
+        return 0;
+    }
+
+    // Valores das peças
+    const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20000];
+
+    let attacker_piece = board.get_piece_on_square(mv.from);
+    let victim_piece = board.get_piece_on_square(mv.to);
+
+    if let (Some(attacker), Some(victim)) = (attacker_piece, victim_piece) {
+        let gain = PIECE_VALUES[victim as usize];
+        let loss = PIECE_VALUES[attacker as usize];
+
+        // Estimativa simples: ganho - perda se não defendida
+        if board.is_square_attacked_by(mv.to, !board.to_move) {
+            gain - loss
+        } else {
+            gain
+        }
+    } else {
+        0
+    }
+}
+
+/// Extrai linha principal da transposition table
+fn extract_pv(board: &Board, tt: &TranspositionTable, max_depth: usize) -> String {
+    let mut pv = Vec::new();
+    let mut current_board = *board;
+
+    for _ in 0..max_depth {
+        if let Some(entry) = tt.probe(current_board.zobrist_hash) {
+            if let Some(mv) = entry.best_move {
+                if current_board.is_legal_move(mv) {
+                    pv.push(mv.to_string());
+                    current_board.make_move(mv);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    pv.join(" ")
+}
+
+/// Ordena movimentos para busca root
+fn order_moves_for_root(board: &Board, moves: Vec<Move>) -> Vec<Move> {
+    order_root_moves(board, moves)
 }

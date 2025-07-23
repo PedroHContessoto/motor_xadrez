@@ -10,8 +10,9 @@ name = "motor_xadrez"
 path = "src/main.rs"
 
 [[bin]]
-name = "expand_openings"
-path = "expand_openings.rs"
+name = "test_final"
+path = "test_final.rs"
+
 
 [dependencies]
 rayon = "1.8"

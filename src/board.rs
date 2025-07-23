@@ -489,6 +489,7 @@ impl Board {
         false
     }
 
+
     /// Verifica se a posição atual é xeque-mate
     pub fn is_checkmate(&self) -> bool {
         if !self.is_king_in_check(self.to_move) {

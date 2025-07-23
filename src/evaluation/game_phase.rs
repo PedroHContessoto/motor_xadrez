@@ -6,6 +6,7 @@ pub enum GamePhase {
     Opening,
     Middlegame,
     Endgame,
+    LateEndgame,
 }
 
 pub fn detect_game_phase(board: &Board) -> GamePhase {
@@ -20,9 +21,11 @@ pub fn detect_game_phase(board: &Board) -> GamePhase {
     if game_phase_score > 20 {
         GamePhase::Opening
     } else if game_phase_score > 10 {
-        GamePhase::Middlegame
-    } else {
+        GamePhase::Middlegame  
+    } else if game_phase_score > 6 {
         GamePhase::Endgame
+    } else {
+        GamePhase::LateEndgame
     }
 }
 
@@ -41,7 +44,8 @@ pub fn detect_game_phase_advanced(board: &Board) -> GamePhaseInfo {
     let phase_value = match phase {
         GamePhase::Opening => 0.0,
         GamePhase::Middlegame => 0.5,
-        GamePhase::Endgame => 1.0,
+        GamePhase::Endgame => 0.8,
+        GamePhase::LateEndgame => 1.0,
     };
     
     GamePhaseInfo {
