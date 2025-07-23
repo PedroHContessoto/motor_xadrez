@@ -7,6 +7,8 @@ pub mod threats;
 pub mod mobility;
 pub mod pawn_structure;
 pub mod game_phase;
+mod utils;
+mod endgame_patterns;
 
 use crate::{board::Board, types::Color};
 

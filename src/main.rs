@@ -383,7 +383,7 @@ fn handle_go_command(board: &Board, tt: &mut TranspositionTable, opening_book: &
     }
     
     // 📚 VERIFICA PRIMEIRO O LIVRO DE ABERTURAS (TEMPORARIAMENTE DESABILITADO)
-    if false && use_book && is_in_opening_phase(board) {
+    if use_book && is_in_opening_phase(board) {
         if let Some((book_move, opening_name)) = opening_book.get_move(board) {
             // Usa movimento do livro de aberturas
             println!("info string Usando livro: {}", opening_name);
