@@ -5,6 +5,14 @@ edition = "2021"
 authors = ["Pedro Contessoto"]
 description = "High-performance chess engine written in Rust"
 
+[[bin]]
+name = "motor_xadrez"
+path = "src/main.rs"
+
+[[bin]]
+name = "expand_openings"
+path = "expand_openings.rs"
+
 [dependencies]
 rayon = "1.8"
 lazy_static = "1.4"

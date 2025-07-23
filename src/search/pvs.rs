@@ -23,8 +23,15 @@ pub fn pvs_search(
 ) -> i32 {
     context.nodes_searched += 1;
 
+
+    // Proteção contra stack overflow - limite absoluto de profundidade
+    if depth > 8 {
+        // Depth limit reached
+        return evaluation::evaluate(board);
+    }
+
     // Verificação de tempo - seta flag ao invés de retornar imediatamente
-    if context.nodes_searched % 4096 == 0 {
+    if context.nodes_searched % 1024 == 0 {
         if start_time.elapsed().as_millis() as u64 > max_time_ms {
             context.should_stop = true;
         }
@@ -41,7 +48,9 @@ pub fn pvs_search(
     if let Some(entry) = tt.probe(board.zobrist_hash) {
         if entry.depth >= depth {
             match entry.entry_type {
-                EntryType::Exact => return entry.score,
+                EntryType::Exact => {
+                    return entry.score;
+                }
                 EntryType::LowerBound => alpha = alpha.max(entry.score),
                 EntryType::UpperBound => beta = beta.min(entry.score),
             }
@@ -108,6 +117,7 @@ pub fn pvs_search(
     let mut best_score = -50000;
     let mut moves_searched = 0;
 
+
     for mv in &ordered_moves {
         let mut temp_board = *board;
         temp_board.make_move(*mv);
@@ -145,32 +155,6 @@ pub fn pvs_search(
             extension += 1; // Recapture extension
         }
         
-        // Singular extension (básico)
-        if is_pv_node && moves_searched == 0 && depth >= 6 && !in_check {
-            if let Some(tt_entry) = tt.probe(board.zobrist_hash) {
-                if tt_entry.depth >= depth - 3 && tt_entry.best_move == Some(*mv) {
-                    let singular_beta = tt_entry.score - 50;
-                    // Busca outros moves para ver se são muito piores
-                    let other_moves: Vec<_> = ordered_moves.iter().skip(1).take(3).cloned().collect();
-                    let mut is_singular = true;
-                    
-                    for other_mv in other_moves {
-                        let mut other_board = *board;
-                        other_board.make_move(other_mv);
-                        let other_score = -pvs_search(&other_board, depth / 2, -singular_beta, -singular_beta + 1, tt, context, start_time, max_time_ms, false);
-                        if other_score >= singular_beta {
-                            is_singular = false;
-                            break;
-                        }
-                    }
-                    
-                    if is_singular {
-                        extension += 1;
-                    }
-                }
-            }
-        }
-
         // Limita extensões para evitar explosion
         extension = extension.min(2);
 

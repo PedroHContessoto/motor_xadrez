@@ -12,33 +12,30 @@ use crate::{board::Board, types::Color};
 
 /// Função principal de avaliação (interface pública)
 pub fn evaluate(board: &Board) -> i32 {
-    let game_phase = game_phase::detect_game_phase(board);
-
-    let white_score = evaluate_color(board, Color::White, &game_phase);
-    let black_score = evaluate_color(board, Color::Black, &game_phase);
-
-    let mut final_score = white_score - black_score;
-
-    // Bônus por tempo (encoraja jogadas mais rápidas quando vantajoso)
-    if final_score.abs() < 50 {
-        final_score += evaluate_tempo(board);
-    }
-
-    // Ajuste dinâmico baseado na fase
-    let phase_multiplier = match game_phase {
-        game_phase::GamePhase::Opening => 0.8,
-        game_phase::GamePhase::Middlegame => 1.2,
-        game_phase::GamePhase::Endgame => 1.0,
-    };
-
-    let adjusted_score = (final_score as f32 * phase_multiplier) as i32;
-    let absolute_score = adjusted_score.clamp(-10000, 10000);
-
-    // Retorna relativo ao jogador atual (positivo = jogador atual melhor)
+    // Versão simplificada apenas com material para estabilidade
+    let mut white_material = 0;
+    let mut black_material = 0;
+    
+    // Material básico
+    white_material += (board.pawns & board.white_pieces).count_ones() as i32 * 100;
+    white_material += (board.knights & board.white_pieces).count_ones() as i32 * 320;
+    white_material += (board.bishops & board.white_pieces).count_ones() as i32 * 330;
+    white_material += (board.rooks & board.white_pieces).count_ones() as i32 * 500;
+    white_material += (board.queens & board.white_pieces).count_ones() as i32 * 900;
+    
+    black_material += (board.pawns & board.black_pieces).count_ones() as i32 * 100;
+    black_material += (board.knights & board.black_pieces).count_ones() as i32 * 320;
+    black_material += (board.bishops & board.black_pieces).count_ones() as i32 * 330;
+    black_material += (board.rooks & board.black_pieces).count_ones() as i32 * 500;
+    black_material += (board.queens & board.black_pieces).count_ones() as i32 * 900;
+    
+    let final_score = white_material - black_material;
+    
+    // Retorna relativo ao jogador atual
     if board.to_move == Color::White {
-        absolute_score
+        final_score
     } else {
-        -absolute_score
+        -final_score
     }
 }
 

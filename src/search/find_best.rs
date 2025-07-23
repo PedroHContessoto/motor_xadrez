@@ -30,7 +30,7 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     let tactical_time_multiplier = if is_tactical_position { 1.5 } else { 1.0 };
     let effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
     
-    for depth in 1..=max_depth {
+    for depth in 1..=max_depth.min(8) { // Limite de profundidade para evitar stack overflow
         let elapsed = start_time.elapsed().as_millis() as u64;
 
         // Time management adaptado para posições táticas

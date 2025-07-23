@@ -307,3 +307,14 @@ fn attacks_square_pawn(target_square: usize, pawn_bb: Bitboard, pawn_color: Colo
     // Verifica se há peões nessas casas
     attacker_squares.iter().any(|&sq| (pawn_bb & (1u64 << sq)) != 0)
 }
+
+/// Função auxiliar para converter bitboard em vetor de casas
+pub fn get_set_bits_simple(mut bitboard: Bitboard) -> Vec<u8> {
+    let mut squares = Vec::new();
+    while bitboard != 0 {
+        let sq = bitboard.trailing_zeros() as u8;
+        bitboard &= bitboard - 1;
+        squares.push(sq);
+    }
+    squares
+}

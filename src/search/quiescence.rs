@@ -13,7 +13,7 @@ pub fn quiescence_search(
     tt: &mut TranspositionTable, 
     context: &mut SearchContext
 ) -> i32 {
-    quiescence_search_with_ply(board, alpha, beta, 0, 8, tt, context)
+    quiescence_search_with_ply(board, alpha, beta, 0, 4, tt, context) // Aumentado para 4
 }
 
 /// Quiescence search com limite de ply para prevenir recursão infinita
@@ -26,6 +26,7 @@ fn quiescence_search_with_ply(
     tt: &mut TranspositionTable, 
     context: &mut SearchContext
 ) -> i32 {
+    
     // Termina se atingiu limite de ply ou stop flag
     if ply >= max_ply || context.should_stop {
         return evaluation::evaluate(board);
