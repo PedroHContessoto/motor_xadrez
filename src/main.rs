@@ -8,6 +8,7 @@ use motor_xadrez::transposition::TranspositionTable;
 use motor_xadrez::opening_book::{OpeningBook, is_in_opening_phase};
 use std::io;
 use std::time::Instant;
+use std::io::Write; // Importa o trait Write para usar flush()
 
 // Estrutura para gerenciar tempos de forma inteligente
 #[derive(Debug)]
@@ -54,7 +55,7 @@ impl TimeManager {
         }
 
         if self.infinite {
-            return u64::MAX;
+            return u64::MAX; // Retorna tempo máximo se a busca for infinita
         }
 
         let (my_time, my_inc) = if board.to_move == motor_xadrez::types::Color::White {
@@ -64,59 +65,90 @@ impl TimeManager {
         };
 
         if let Some(time_left) = my_time {
-            // Detecta características táticas da posição
-            let tactical_factors = self.analyze_position_complexity(board);
+            // Análise de complexidade da posição
+            let complexity = self.analyze_position_complexity(board);
 
-            // Gestão equilibrada do tempo baseada na fase do jogo
+            // Base mais generosa para o divisor
             let mut base_divisor = if moves_played < 10 {
-                30  // Abertura: tempo moderado
+                25  // Abertura: mais tempo
             } else if moves_played < 25 {
-                20  // Meio-jogo: mais tempo para decisões críticas
+                15  // Meio-jogo: muito mais tempo
             } else if moves_played < 50 {
-                25  // Final médio: balanceado
+                20  // Final médio
             } else {
-                18  // Final técnico: mais tempo para cálculo preciso
+                15  // Final: mais tempo para precisão
             };
 
-            // Ajustes inteligentes baseados na complexidade
-            if tactical_factors.is_tactical {
-                base_divisor = (base_divisor as f32 * 0.75) as u64; // 25% mais tempo em posições táticas
-                
-                // Ajustes graduais para situações específicas
-                if tactical_factors.has_hanging_pieces {
-                    base_divisor = base_divisor.saturating_sub(2); // Mais tempo para salvar peças
+            // Ajustes menos agressivos baseados na complexidade
+            if complexity.is_tactical {
+                // Posição tática: 50% mais tempo
+                base_divisor = (base_divisor as f32 * 0.67).round() as u64; // Usar round para evitar truncamento
+                if complexity.has_hanging_pieces {
+                    base_divisor = base_divisor.saturating_sub(3);
                 }
-                if tactical_factors.in_check {
-                    base_divisor = base_divisor.saturating_sub(3); // Muito mais tempo em xeque
+                if complexity.in_check {
+                    base_divisor = base_divisor.saturating_sub(5);
                 }
-                if tactical_factors.is_critical {
-                    base_divisor = base_divisor.saturating_sub(2); // Tempo extra para posições críticas
+                if complexity.is_critical {
+                    base_divisor = base_divisor.saturating_sub(4);
                 }
             }
 
-            // Não deixar o divisor ficar muito baixo
-            base_divisor = base_divisor.max(15); // Era 8, agora 15
+            // Garante que o divisor nunca seja zero ou muito pequeno
+            base_divisor = base_divisor.max(10);
 
+            // Calcula o tempo base
             let base_time = time_left / base_divisor;
-            let increment_bonus = my_inc.unwrap_or(0).saturating_mul(2) / 3;
+
+            // Usa incremento de forma mais inteligente
+            let increment_bonus = if let Some(inc) = my_inc {
+                if time_left < 30000 { // Menos de 30 segundos
+                    inc * 4 / 5  // Usa 80% do incremento
+                } else {
+                    inc * 3 / 4  // Usa 75% do incremento
+                }
+            } else {
+                0
+            };
+
             let mut time_with_increment = base_time + increment_bonus;
 
-            // Bônus adicional para posições críticas (reduzido)
-            if tactical_factors.is_critical {
-                time_with_increment = (time_with_increment as f32 * 1.2) as u64; // Era 1.4
+            // Bônus maior para posições críticas
+            if complexity.is_critical {
+                time_with_increment = (time_with_increment as f32 * 1.5).round() as u64;
+            } else if complexity.is_tactical {
+                time_with_increment = (time_with_increment as f32 * 1.3).round() as u64;
             }
 
-            // Limites mais conservadores
-            let min_time = if time_left > 10000 { 300 } else { 150 }; // Era 500/200
-            let max_time = if tactical_factors.is_tactical {
-                time_left / 4 // Era 1/3, agora 1/4 (mais conservador)
+            // Limites ajustados para o tempo final
+            let min_time = if time_left > 60000 {
+                1000  // 1 segundo mínimo com muito tempo
+            } else if time_left > 10000 {
+                500   // 0.5 segundos com tempo moderado
             } else {
-                time_left / 3 // Era 1/2, agora 1/3
+                200   // 0.2 segundos com pouco tempo
             };
 
-            time_with_increment.max(min_time).min(max_time)
+            // Garante que max_time não seja zero se time_left for zero, para evitar divisão por zero ou tempo 0
+            let max_time_divisor = if complexity.is_critical {
+                3
+            } else if complexity.is_tactical {
+                4
+            } else {
+                5
+            };
+            let max_time = time_left / max_time_divisor.max(1); // Garante divisor mínimo de 1
+
+            // Garante tempo mínimo absoluto e respeita o tempo máximo
+            let final_time = time_with_increment.max(min_time).min(max_time);
+
+            println!("info string Time allocation: base={}, inc_bonus={}, final={}, complexity={:?}",
+                     base_time, increment_bonus, final_time, complexity);
+
+            final_time
         } else {
-            5000 // Era 8000, agora 5000
+            // Se não há tempo definido (ex: no `go` não veio `wtime`/`btime`), usa um padrão razoável
+            10000 // 10 segundos padrão
         }
     }
 
@@ -124,72 +156,63 @@ impl TimeManager {
     fn analyze_position_complexity(&self, board: &Board) -> PositionComplexity {
         let mut complexity = PositionComplexity::default();
 
-        // 1. Verifica se estamos em xeque
+        // 1. Xeque é sempre crítico
         complexity.in_check = board.is_king_in_check(board.to_move);
+        if complexity.in_check {
+            complexity.is_critical = true;
+            complexity.is_tactical = true;
+            return complexity; // Retorna imediatamente
+        }
 
-        // 2. Conta peças atacadas e atacantes
+        // 2. Análise rápida de peças penduradas
         let our_pieces = if board.to_move == motor_xadrez::types::Color::White {
             board.white_pieces
         } else {
             board.black_pieces
         };
-        let enemy_pieces = if board.to_move == motor_xadrez::types::Color::White {
-            board.black_pieces
-        } else {
-            board.white_pieces
-        };
 
-        // 3. Detecta peças penduradas (atacadas e não defendidas)
+        // Verifica apenas peças valiosas (não peões)
         let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
-        let mut hanging_pieces = 0;
-        let mut attacked_pieces = 0;
+        let mut hanging_count = 0;
+        let mut attacked_count = 0;
 
+        // Amostragem: verifica apenas as primeiras peças encontradas
         let mut bb = our_valuables;
-        while bb != 0 {
+        let mut checked = 0;
+        while bb != 0 && checked < 4 { // Limita verificação para ser rápido
             let sq = bb.trailing_zeros() as u8;
             bb &= bb - 1;
+            checked += 1;
 
             if board.is_square_attacked_by(sq, !board.to_move) {
-                attacked_pieces += 1;
+                attacked_count += 1;
                 if !board.is_square_attacked_by(sq, board.to_move) {
-                    hanging_pieces += 1;
+                    hanging_count += 1;
                 }
             }
         }
 
-        complexity.has_hanging_pieces = hanging_pieces > 0;
-        complexity.attacked_pieces_count = attacked_pieces;
+        complexity.has_hanging_pieces = hanging_count > 0;
+        complexity.attacked_pieces_count = attacked_count;
 
-        // 4. Verifica densidade de peças (posições congestionadas são mais táticas)
+        // 3. Densidade de peças
         let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
         complexity.piece_density = total_pieces as f32 / 64.0;
 
-        // 5. Verifica proximidade dos reis (finais de rei)
-        let white_king_bb = board.kings & board.white_pieces;
-        let black_king_bb = board.kings & board.black_pieces;
+        // 4. Determina táticas
+        complexity.is_tactical = hanging_count > 0 ||
+            attacked_count >= 2 ||
+            total_pieces <= 16;
 
-        if white_king_bb != 0 && black_king_bb != 0 {
-            let white_king_sq = white_king_bb.trailing_zeros() as u8;
-            let black_king_sq = black_king_bb.trailing_zeros() as u8;
-            let king_distance = self.square_distance(white_king_sq, black_king_sq);
-            complexity.king_proximity = 8 - king_distance; // Maior valor = reis mais próximos
-        }
-
-        // 6. Determina se posição é tática
-        complexity.is_tactical = complexity.in_check ||
-            hanging_pieces > 0 ||
-            attacked_pieces > 2 ||
-            (total_pieces <= 16 && complexity.king_proximity > 5); // Finais ativos
-
-        // 7. Determina se posição é crítica (precisa de muito tempo)
-        complexity.is_critical = hanging_pieces > 1 ||
-            (complexity.in_check && attacked_pieces > 0) ||
-            (total_pieces <= 10 && complexity.king_proximity > 6); // Finais críticos
+        // 5. Posições críticas
+        complexity.is_critical = hanging_count >= 2 ||
+            (hanging_count > 0 && attacked_count > 1) ||
+            (total_pieces <= 10 && complexity.is_tactical);
 
         complexity
     }
 
-    /// Calcula distância entre duas casas do tabuleiro
+    /// Calcula distância entre duas casas do tabuleiro (não usada no código fornecido, mas mantida)
     fn square_distance(&self, sq1: u8, sq2: u8) -> u8 {
         let file1 = sq1 % 8;
         let rank1 = sq1 / 8;
@@ -213,18 +236,18 @@ impl TimeManager {
         }
 
         let tactical_factors = self.analyze_position_complexity(board);
-        let mut max_depth = 40u8; // Era 50, agora 40 (mais realista)
+        let mut max_depth = 40u8; // Profundidade base mais realista
 
         // Ajusta profundidade baseada na complexidade tática
         if tactical_factors.is_critical {
-            max_depth = 45; // Era 60
+            max_depth = 45;
         } else if tactical_factors.is_tactical {
-            max_depth = 42; // Era 55
+            max_depth = 42;
         }
 
         // Em finais simples, limita a profundidade para evitar perder tempo
         if tactical_factors.piece_density < 0.25 && !tactical_factors.is_tactical {
-            max_depth = 35; // Era 45
+            max_depth = 35;
         }
 
         max_depth
@@ -235,9 +258,12 @@ fn main() {
     // Inicializa as dependências do motor
     motor_xadrez::evaluation::pawn_structure::init_pawn_masks();
     let mut board = Board::new();
-    let mut tt = TranspositionTable::new(128); // 16 MB
+    let mut tt = TranspositionTable::new(128); // 128 MB (corrigido de 16 para 128 para ser mais comum)
     let opening_book = OpeningBook::new(); // Carrega livro de aberturas
     let mut use_opening_book = true; // Configurável via UCI
+
+    // O número de lances jogados deve ser persistido entre os comandos 'go'
+    // e atualizado por 'position' e 'make_move'.
     let mut moves_played = 0u16;
 
     // Loop principal que espera por comandos da GUI
@@ -260,11 +286,14 @@ fn main() {
                     println!("option name OwnBook type check default true");
 
                     println!("uciok");
+                    io::stdout().flush().ok(); // Garante que a saída é enviada imediatamente
                 }
                 "isready" => {
                     println!("readyok");
+                    io::stdout().flush().ok();
                 }
                 "position" => {
+                    // Atualiza moves_played com base no comando position
                     moves_played = handle_position_command(&mut board, &commands);
                 }
                 "go" => {
@@ -275,7 +304,13 @@ fn main() {
                 }
                 "stop" => {
                     // Para a busca atual (para implementar futuramente com threading)
-                    println!("bestmove (none)");
+                    // Se não houver threading, este comando pode não ter efeito imediato
+                    // e a engine continuará a busca até o fim do tempo alocado ou profundidade.
+                    // Em um motor real, 'stop' sinalizaria para a thread de busca parar.
+                    // Por enquanto, não há uma ação direta aqui para parar a busca em andamento.
+                    // A linha `println!("bestmove (none)");` aqui é um placeholder e pode ser removida
+                    // ou usada apenas se o motor realmente não tiver um lance para retornar.
+                    // O motor deve enviar bestmove *após* parar a busca, não no comando stop.
                 }
                 "quit" => {
                     break; // Sai do loop e termina o programa
@@ -291,7 +326,7 @@ fn main() {
 /// Processa o comando "position" e retorna o número de lances jogados
 fn handle_position_command(board: &mut Board, commands: &[&str]) -> u16 {
     let mut move_start_index = 0;
-    let mut moves_count = 0u16;
+    let mut moves_count = 0u16; // Reinicia a contagem de lances para a nova posição
 
     if commands.get(1) == Some(&"startpos") {
         *board = Board::new();
@@ -303,8 +338,11 @@ fn handle_position_command(board: &mut Board, commands: &[&str]) -> u16 {
         if let Ok(new_board) = Board::from_fen(&fen) {
             *board = new_board;
             // Extrai o número de lances do FEN se possível
-            if let Some(fullmove_str) = fen_parts.last() {
+            // O FEN tem o número de lances completos na 6ª parte (índice 5)
+            if let Some(fullmove_str) = fen_parts.get(5) { // Corrigido para pegar o fullmove do FEN
                 if let Ok(fullmove) = fullmove_str.parse::<u16>() {
+                    // O fullmove no FEN é o número do lance completo.
+                    // moves_played é o número de meios-lances.
                     moves_count = (fullmove - 1) * 2;
                     if board.to_move == motor_xadrez::types::Color::Black {
                         moves_count += 1;
@@ -320,7 +358,10 @@ fn handle_position_command(board: &mut Board, commands: &[&str]) -> u16 {
         for move_str in commands.iter().skip(move_start_index + 1) {
             if let Some(mv) = parse_move(board, move_str) {
                 board.make_move(mv);
-                moves_count += 1;
+                moves_count += 1; // Incrementa para cada lance aplicado
+            } else {
+                eprintln!("Erro: Não foi possível parsear o lance: {}", move_str);
+                // Pode ser útil adicionar um tratamento de erro mais robusto aqui
             }
         }
     }
@@ -381,20 +422,19 @@ fn handle_go_command(board: &Board, tt: &mut TranspositionTable, opening_book: &
             "infinite" => {
                 time_manager.infinite = true;
             },
-            _ => {}
+            _ => {} // Ignora outros tokens que não são parâmetros de tempo/profundidade
         }
         i += 1;
     }
 
-    // 📚 VERIFICA PRIMEIRO O LIVRO DE ABERTURAS (TEMPORARIAMENTE DESABILITADO)
+    // 📚 VERIFICA PRIMEIRO O LIVRO DE ABERTURAS
     if use_book && is_in_opening_phase(board) {
         if let Some((book_move, opening_name)) = opening_book.get_move(board) {
             // Usa movimento do livro de aberturas
             println!("info string Usando livro: {}", opening_name);
             println!("bestmove {}", book_move);
-            use std::io::{self, Write};
-            io::stdout().flush().ok();
-            return;
+            io::stdout().flush().ok(); // Garante que a saída é enviada imediatamente
+            return; // Retorna após encontrar um lance no livro
         } else {
             println!("info string Saindo do livro de aberturas - calculando...");
         }
@@ -404,18 +444,19 @@ fn handle_go_command(board: &Board, tt: &mut TranspositionTable, opening_book: &
     let time_for_move = time_manager.calculate_time_for_move(board, moves_played);
     let max_depth = time_manager.get_adaptive_depth(board);
 
-    // Força flush para Arena ver imediatamente
-    use std::io::{self, Write};
+    println!("info string Allocated time: {}ms, max depth: {}", time_for_move, max_depth);
 
-    if let Some((best_move, _final_score)) = search::find_best_move_with_time(board, max_depth, time_for_move, tt) {
+    // Busca o melhor movimento
+    if let Some((best_move, final_score)) = search::find_best_move_with_time(board, max_depth, time_for_move, tt) {
         println!("bestmove {}", best_move);
         io::stdout().flush().ok();
     } else {
-        // Fallback se não encontrar nenhuma jogada
+        // Fallback: Se não encontrou um best_move, tenta gerar um lance legal ou reporta (none)
         let legal_moves = board.generate_legal_moves();
         if let Some(fallback_move) = legal_moves.first() {
             println!("bestmove {}", fallback_move);
         } else {
+            // Se não há lances legais, é xeque-mate ou stalemate
             println!("bestmove (none)");
         }
         io::stdout().flush().ok();
@@ -432,7 +473,7 @@ fn handle_setoption_command(commands: &[&str], use_opening_book: &mut bool) {
             "Hash" => {
                 if let Ok(size) = option_value.parse::<usize>() {
                     println!("info string Hash table size set to {} MB", size);
-                    // TODO: Redimensionar a tabela de transposição
+                    // TODO: Redimensionar a tabela de transposição (necessita passar tt como mut)
                 }
             },
             "Threads" => {
@@ -454,10 +495,14 @@ fn handle_setoption_command(commands: &[&str], use_opening_book: &mut bool) {
             }
         }
     }
+    io::stdout().flush().ok(); // Garante que a saída é enviada imediatamente
 }
 
 /// Função auxiliar para converter uma string (ex: "e2e4") num objeto Move
 fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
+    // É mais eficiente gerar lances legais uma vez e depois procurar.
+    // No entanto, se o `board.generate_legal_moves()` for muito lento,
+    // pode-se otimizar esta função para tentar parsear diretamente e validar depois.
     let legal_moves = board.generate_legal_moves();
     for mv in legal_moves {
         let mv_str = mv.to_string();
@@ -465,7 +510,7 @@ fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
         if mv_str == *move_str {
             return Some(mv);
         }
-        // Tenta sem a notação de captura 'x'
+        // Tenta sem a notação de captura 'x' ou xeque/xeque-mate
         let clean_move_str = move_str.replace("x", "").replace("+", "").replace("#", "");
         if mv_str == clean_move_str {
             return Some(mv);

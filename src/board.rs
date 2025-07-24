@@ -416,7 +416,7 @@ impl Board {
             let pawn_attacks = ((square_bb >> 7) & 0xfefefefefefefefe) | ((square_bb >> 9) & 0x7f7f7f7f7f7f7f7f);
             if (pawn_attacks & self.pawns & attacking_pieces) != 0 { return true; }
         } else {
-            // Peões pretos atacam diagonalmente para baixo  
+            // Peões pretos atacam diagonalmente para baixo
             let pawn_attacks = ((square_bb << 7) & 0x7f7f7f7f7f7f7f7f) | ((square_bb << 9) & 0xfefefefefefefefe);
             if (pawn_attacks & self.pawns & attacking_pieces) != 0 { return true; }
         }

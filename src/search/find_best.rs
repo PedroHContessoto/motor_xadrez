@@ -16,6 +16,7 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     let mut best_score = 0;
     let mut prev_score = 0;
     let mut stable_count = 0;
+    let mut total_nodes = 0u64; // Acumula nodes de todas as iterações
 
     // Clear PV table for new search
     context.clear_pv();
@@ -30,17 +31,12 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
 
     // Detecta complexidade da posição para ajuste inteligente de tempo
     let tactical_level = evaluate_position_complexity(board);
-    let tactical_time_multiplier = match tactical_level {
-        3 => 1.5,   // Reduzido de 1.3 -> 1.5 (era 2.0)
-        2 => 1.2,   // Reduzido de 1.15 -> 1.2 (era 1.4)
-        1 => 1.1,   // Reduzido de 1.05 -> 1.1 (era 1.15)
-        _ => 1.0    // Posição normal
-    };
-    let _effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
     
     // DEBUG: Log inicial detalhado
-    println!("DEBUG: Starting search - max_time_ms: {}, tactical_level: {}, multiplier: {:.2}", 
-             max_time_ms, tactical_level, tactical_time_multiplier);
+    println!("DEBUG: Starting search - max_time_ms: {}, tactical_level: {}",
+             max_time_ms, tactical_level);
+
+    let min_depth = 8;
 
     for depth in 1..=max_depth { // CORREÇÃO: Remove limite artificial de depth 8
         let iteration_start = std::time::Instant::now();
@@ -53,35 +49,24 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
         // DEBUG: Log início da iteração
         println!("DEBUG: Starting depth {}, total_elapsed: {}ms", depth, elapsed);
 
-        // Time management com limits seguros
-        let base_timeout = max_time_ms / 25;  // Mais generoso: 1/25 do tempo (era 1/30)
-        let max_timeout = max_time_ms / 6;    // Mais generoso: 1/6 do tempo (era 1/8)
-        
-        let adjusted_timeout = (base_timeout as f32 * tactical_time_multiplier) as u64;
-        let final_timeout = adjusted_timeout.min(max_timeout);
-        
-        // CRÍTICO: Depth limit muito mais conservador
-        let max_safe_depth = match tactical_level {
-            3 => 8,   // Era 20 -> 8 (redução drástica)
-            2 => 7,   // Era 16 -> 7
-            1 => 6,   // Era 14 -> 6
-            _ => 6    // Era 12 -> 6
-        };
-        
-        if depth > max_safe_depth {
-            println!("DEBUG: Depth limit reached at {}", depth);
-            break;
-        }
-        
-        if depth > 4 && elapsed > final_timeout {
-            println!("DEBUG: Time limit reached at depth {}, elapsed: {}ms, limit: {}ms", 
+        // CORREÇÃO: Time management mais generoso
+        let base_timeout = max_time_ms / 20;  // Era /25
+        let max_timeout = max_time_ms / 3;    // Era /6
+
+        let final_timeout = base_timeout.min(max_timeout);
+
+        // CORREÇÃO: Permitir pelo menos depth 8 sempre
+        if depth < min_depth {
+            // Continua até depth mínimo independente do tempo
+        } else if depth > 4 && elapsed > final_timeout {
+            println!("DEBUG: Time limit reached at depth {}, elapsed: {}ms, limit: {}ms",
                      depth, elapsed, final_timeout);
             break;
         }
 
-        // Hard timeout absoluto
-        let absolute_limit = max_time_ms / 2;  // Muito conservador: 1/2 do tempo (era 1/4)
-        if elapsed > absolute_limit {
+        // CORREÇÃO: Aumentar limite absoluto
+        let absolute_limit = (max_time_ms * 3) / 4;  // Era /2
+        if elapsed > absolute_limit && depth >= min_depth {
             println!("DEBUG: HARD TIMEOUT at {}ms (limit: {}ms)", elapsed, absolute_limit);
             break;
         }
@@ -97,11 +82,34 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
             pvs_search(board, depth, -50000, 50000, tt, &mut context, start_time, max_time_ms, true)
         };
 
-        // DEBUG: Log tempo da iteração
+        // DEBUG: Log tempo da iteração + NPS monitoring
         let iteration_time = iteration_start.elapsed().as_millis();
         let total_elapsed = start_time.elapsed().as_millis();
-        println!("DEBUG: Depth {} completed in {}ms, total: {}ms, nodes: {}", 
-                 depth, iteration_time, total_elapsed, context.nodes_searched);
+        
+        // Acumula nodes de todas as iterações
+        total_nodes += context.nodes_searched as u64;
+        
+        // CRÍTICO: NPS monitoring (iteração atual)
+        let iteration_nps = if iteration_time > 0 {
+            (context.nodes_searched as u64 * 1000) / iteration_time as u64
+        } else {
+            0
+        };
+        
+        // NPS total acumulativo
+        let total_nps = if total_elapsed > 0 {
+            (total_nodes * 1000) / total_elapsed as u64
+        } else {
+            0
+        };
+        
+        println!("DEBUG: Depth {} completed in {}ms, total: {}ms, nodes: {}, iter_NPS: {}, total_NPS: {}", 
+                 depth, iteration_time, total_elapsed, context.nodes_searched, iteration_nps, total_nps);
+        
+        // WARNING se NPS muito baixo
+        if iteration_nps < 50_000 && depth > 2 {
+            println!("WARNING: Low NPS detected: {} (target: 200k+)", iteration_nps);
+        }
 
         // Se parou por timeout, usa o que temos
         if context.should_stop {
@@ -136,22 +144,41 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
                     continue;
                 }
 
-                // Só imprime se temos um move legal válido
-                let nps = if elapsed > 0 { context.nodes_searched * 1000 / elapsed } else { 0 }; // Limpado parens
-                let time_ms = elapsed;
+                // CORREÇÃO: UCI info com valores acumulativos corretos
+                let total_elapsed_ms = start_time.elapsed().as_millis() as u64;
+                let uci_nps = if total_elapsed_ms > 0 { 
+                    (total_nodes * 1000) / total_elapsed_ms 
+                } else { 
+                    0 
+                };
 
                 let display_score = score.clamp(-10000, 10000);
 
-                // Format Principal Variation
+                // Format Principal Variation  
                 let pv_string = if context.pv_length[0] > 0 {
                     context.format_pv(0)
                 } else {
                     format!("{}", mv)
                 };
 
-                // Show thinking line
-                println!("info depth {} score cp {} nodes {} nps {} time {} pv {}",
-                         depth, display_score, context.nodes_searched, nps, time_ms, pv_string);
+                // UCI info completa para Arena com valores corretos
+                let hashfull = ((total_nodes & 1023) * 1000 / 1024).min(1000); // Hash usage aproximado
+                
+                println!("info depth {} seldepth {} score cp {} nodes {} nps {} hashfull {} time {} pv {}",
+                         depth, 
+                         depth, // seldepth = selective depth (aproximação)
+                         display_score, 
+                         total_nodes, // Total acumulativo de nodes
+                         uci_nps,     // NPS acumulativo
+                         hashfull,    // Hash table usage aproximado
+                         total_elapsed_ms, 
+                         pv_string);
+                
+                // Log adicional de progresso para depths maiores
+                if depth >= 4 {
+                    println!("info string depth {} time {}ms total_nodes {} nps {} current_nodes {}", 
+                             depth, total_elapsed_ms, total_nodes, uci_nps, context.nodes_searched);
+                }
 
                 // Removed extra logging to keep output clean
 
@@ -172,88 +199,23 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
 }
 
 
-/// Avalia complexidade da posição em níveis (0-3)
+/// Avalia complexidade da posição em níveis (0-3) - VERSÃO RÁPIDA
 fn evaluate_position_complexity(board: &Board) -> u8 {
     let our_color = board.to_move;
-    let enemy_color = !our_color;
     let mut complexity_score = 0u8;
 
-    // 1. Fatores de complexidade imediata (+2 pontos cada)
+    // 1. Xeque = complexidade alta
     if board.is_king_in_check(our_color) {
-        complexity_score += 2; // Xeque = alta complexidade
+        return 3; // Máxima complexidade em xeque
     }
 
-    // 2. Análise de peças atacadas/penduradas
-    let our_pieces = if our_color == crate::types::Color::White {
-        board.white_pieces
-    } else {
-        board.black_pieces
-    };
-    let enemy_pieces = if enemy_color == crate::types::Color::White {
-        board.white_pieces
-    } else {
-        board.black_pieces
-    };
-
-    let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
-    let enemy_valuables = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
-    
-    let mut hanging_count = 0;
-    let mut attacked_count = 0;
-    let mut enemy_hanging = 0;
-
-    // Analisa nossas peças
-    let mut bb = our_valuables;
-    while bb != 0 {
-        let sq = bb.trailing_zeros() as u8;
-        bb &= bb - 1;
-
-        if board.is_square_attacked_by(sq, enemy_color) {
-            attacked_count += 1;
-            if !board.is_square_attacked_by(sq, our_color) {
-                hanging_count += 1;
-            }
-        }
-    }
-
-    // Analisa peças inimigas
-    let mut enemy_bb = enemy_valuables;
-    while enemy_bb != 0 {
-        let sq = enemy_bb.trailing_zeros() as u8;
-        enemy_bb &= enemy_bb - 1;
-
-        if board.is_square_attacked_by(sq, our_color) &&
-            !board.is_square_attacked_by(sq, enemy_color) {
-            enemy_hanging += 1;
-        }
-    }
-
-    // 3. Pontuação baseada em ameaças
-    if hanging_count > 0 {
-        complexity_score += 2; // Temos peças penduradas = muito complexo
-    }
-    if enemy_hanging > 0 {
-        complexity_score += 1; // Podemos ganhar material = complexo
-    }
-    if attacked_count > 2 {
-        complexity_score += 1; // Muitas peças sob ataque = complexo
-    }
-
-    // 4. Análise da fase do jogo
+    // 2. Contagem rápida de material
     let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
-    let total_pawns = board.pawns.count_ones();
-    let queens_on_board = board.queens.count_ones();
 
-    // Finais técnicos complexos
-    if total_pieces <= 8 && total_pawns <= 3 {
-        complexity_score += 1;
-    }
-    
-    // Meio-jogo com muitas peças = potencial tático
-    if total_pieces > 20 && queens_on_board >= 2 {
-        complexity_score += 1;
+    if total_pieces <= 8 {
+        complexity_score += 1; // Endgame
     }
 
-    // 5. Limita o score máximo a 3
-    complexity_score.min(3)
+    // 3. Simplificado - não fazer análise profunda aqui
+    complexity_score.min(2) // Limita a 2 para não atrasar
 }

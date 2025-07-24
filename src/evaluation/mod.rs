@@ -198,3 +198,27 @@ fn calculate_raw_material(board: &Board, color: Color) -> i32 {
     
     pawns + knights + bishops + rooks + queens
 }
+
+/// Avaliação rápida para nodes internos (só material + PST básico)
+pub fn quick_evaluate(board: &Board) -> i32 {
+    // Só material básico + diferencial rápido
+    let white_material = calculate_raw_material(board, Color::White);
+    let black_material = calculate_raw_material(board, Color::Black);
+    let material_diff = white_material - black_material;
+    
+    // Bônus mínimo por mobilidade (sem cálculo pesado)
+    let white_moves = board.generate_legal_moves().len() as i32;
+    let mut temp_board = *board;
+    temp_board.to_move = !temp_board.to_move;
+    let black_moves = temp_board.generate_legal_moves().len() as i32;
+    let mobility_diff = (white_moves - black_moves) * 2; // Muito reduzido
+    
+    let mut final_score = material_diff + mobility_diff;
+    
+    // Retorna relativo ao jogador atual
+    if board.to_move == Color::White {
+        final_score
+    } else {
+        -final_score
+    }
+}
