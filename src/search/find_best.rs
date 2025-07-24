@@ -17,6 +17,9 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     let mut prev_score = 0;
     let mut stable_count = 0;
     
+    // Clear PV table for new search
+    context.clear_pv();
+    
     // Garante que sempre temos um movimento de fallback
     let legal_moves = board.generate_legal_moves();
     if legal_moves.is_empty() {
@@ -32,6 +35,10 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     
     for depth in 1..=max_depth.min(8) { // Limite de profundidade para evitar stack overflow
         let elapsed = start_time.elapsed().as_millis() as u64;
+        
+        // Update search context for logging
+        context.current_depth = depth;
+        context.nodes_searched = 0; // Reset for this depth
 
         // Time management adaptado para posições táticas
         if depth > 12 && elapsed > effective_time_limit {
@@ -54,6 +61,8 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
 
         // Reset stop flag para cada profundidade
         context.should_stop = false;
+        
+        // Removed search start info to keep logs clean
         
         let score = if depth > 2 {
             aspiration_search(board, depth, prev_score, tt, &mut context, start_time, max_time_ms)
@@ -98,8 +107,20 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
                 let time_ms = elapsed;
 
                 let display_score = score.clamp(-10000, 10000);
+                
+                // Format Principal Variation
+                let pv_string = if context.pv_length[0] > 0 {
+                    context.format_pv(0)
+                } else {
+                    format!("{}", mv)
+                };
+                
+                // Show thinking line
                 println!("info depth {} score cp {} nodes {} nps {} time {} pv {}",
-                         depth, display_score, context.nodes_searched, nps, time_ms, mv);
+                         depth, display_score, context.nodes_searched, nps, time_ms, pv_string);
+                         
+                // Removed extra logging to keep output clean
+                
                 io::stdout().flush().ok();
             }
         }
@@ -115,6 +136,7 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
 
     best_move.map(|mv| (mv, best_score))
 }
+
 
 /// Detecta se a posição atual é tática (precisa de mais tempo/profundidade)
 fn detect_tactical_position(board: &Board) -> bool {

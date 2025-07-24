@@ -7,7 +7,7 @@ pub const LMR_REDUCTION: u8 = 2;
 pub const FUTILITY_MARGIN: [i32; 4] = [0, 300, 500, 800];
 
 pub use context::SearchContext;
-pub use ordering::order_moves;
+pub use ordering::{order_moves, update_context_on_cutoff, is_promotion_capture};
 pub use see::see;
 pub use find_best::{find_best_move, find_best_move_with_time};
 pub use aspiration::aspiration_search;

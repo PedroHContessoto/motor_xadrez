@@ -21,6 +21,22 @@ pub fn pvs_search(
     max_time_ms: u64, 
     is_pv_node: bool
 ) -> i32 {
+    pvs_search_internal(board, depth, alpha, beta, tt, context, start_time, max_time_ms, is_pv_node, 0)
+}
+
+/// Internal PVS search with ply tracking
+fn pvs_search_internal(
+    board: &Board, 
+    depth: u8, 
+    mut alpha: i32, 
+    mut beta: i32, 
+    tt: &mut TranspositionTable, 
+    context: &mut SearchContext, 
+    start_time: Instant, 
+    max_time_ms: u64, 
+    is_pv_node: bool,
+    ply: usize
+) -> i32 {
     context.nodes_searched += 1;
 
 
@@ -84,7 +100,7 @@ pub fn pvs_search(
                 if depth < 6 || null_score >= MATE_VALUE - 100 {
                     return beta;
                 } else {
-                    let verify_score = pvs_search(board, depth - 4, beta - 1, beta, tt, context, start_time, max_time_ms, false);
+                    let verify_score = pvs_search_internal(board, depth - 4, beta - 1, beta, tt, context, start_time, max_time_ms, false, ply);
                     if verify_score >= beta {
                         return beta;
                     }
@@ -118,9 +134,14 @@ pub fn pvs_search(
     let mut moves_searched = 0;
 
 
+    let mut tried_moves = Vec::with_capacity(ordered_moves.len());
+    
     for mv in &ordered_moves {
         let mut temp_board = *board;
         temp_board.make_move(*mv);
+        
+        // Track movimento no context
+        context.push_move(*mv);
         
         let gives_check = temp_board.is_king_in_check(!board.to_move);
         let is_capture = board.is_capture(*mv);
@@ -163,7 +184,7 @@ pub fn pvs_search(
         if moves_searched == 0 {
             // Primeira jogada: busca completa
             let first_depth = if depth > 1 { depth - 1 + extension } else { extension };
-            let first_score = pvs_search(&temp_board, first_depth, -beta, -alpha, tt, context, start_time, max_time_ms, is_pv_node);
+            let first_score = pvs_search_internal(&temp_board, first_depth, -beta, -alpha, tt, context, start_time, max_time_ms, is_pv_node, ply + 1);
             score = -first_score;
         } else {
             // Late Move Reduction aprimorado
@@ -175,8 +196,10 @@ pub fn pvs_search(
                 reduction = LMR_REDUCTION;
                 
                 // Reduce mais para moves com história baixa
-                if context.get_history_score(*mv) < 0 {
-                    reduction += 1;
+                if let Some(piece) = board.get_piece_on_square(mv.from) {
+                    if context.get_history_score(*mv, piece) < 0 {
+                        reduction += 1;
+                    }
                 }
                 
                 // Reduce menos próximo de mate
@@ -187,36 +210,41 @@ pub fn pvs_search(
 
             // PVS null window search
             let search_depth = if depth > 1 + reduction { depth - 1 - reduction + extension } else { 0 };
-            let temp_score = pvs_search(&temp_board, search_depth, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false);
+            let temp_score = pvs_search_internal(&temp_board, search_depth, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false, ply + 1);
             score = -temp_score;
 
             // Re-search com janela completa se necessário
             if score > alpha && (is_pv_node || reduction > 0) {
                 let full_depth = if depth > 1 { depth - 1 + extension } else { extension };
-                let full_score = pvs_search(&temp_board, full_depth, -beta, -alpha, tt, context, start_time, max_time_ms, is_pv_node);
+                let full_score = pvs_search_internal(&temp_board, full_depth, -beta, -alpha, tt, context, start_time, max_time_ms, is_pv_node, ply + 1);
                 score = -full_score;
             }
         }
 
         moves_searched += 1;
+        tried_moves.push(*mv);
+
+        // Remove movimento do context stack
+        context.pop_move();
 
         // Update best score
         if score > best_score {
             best_score = score;
             best_move = Some(*mv);
             
-            if !is_capture {
-                context.update_history(*mv, depth);
+            // Update Principal Variation if this is the best move
+            if is_pv_node {
+                context.update_pv(ply, *mv);
             }
         }
 
         alpha = alpha.max(score);
         
-        // Beta cutoff
+        // Beta cutoff - usar função melhorada
         if alpha >= beta {
-            if !is_capture {
-                context.add_killer(*mv, depth);
-            }
+            // Usa a função de atualização completa do contexto
+            use super::ordering::update_context_on_cutoff;
+            update_context_on_cutoff(context, board, *mv, depth, &tried_moves);
             break;
         }
     }

@@ -34,25 +34,39 @@ pub fn order_moves(
         else if mv.is_castling {
             score = 15_000;
         }
-        // 4. Movimentos defensivos (nova prioridade alta)
+        // 4. Promoções (prioridade muito alta, especialmente promoção para dama)
+        else if mv.promotion.is_some() {
+            score = match mv.promotion {
+                Some(PieceKind::Queen) => 30_000,
+                Some(PieceKind::Rook) => 28_000,
+                Some(PieceKind::Bishop) => 26_000,
+                Some(PieceKind::Knight) => 24_000,
+                _ => 22_000,
+            };
+        }
+        // 5. Movimentos defensivos (nova prioridade alta)
         else if is_defensive_move(board, mv) {
-            score = 25_000;
+            score = 20_000;
         }
-        // 5. Killers (moves que causaram cutoffs)
+        // 6. Killers (moves que causaram cutoffs)
         else if context.is_killer(mv, depth) {
-            score = 9_000;
+            score = 12_000;
         }
-        // 6. Counter-moves (refutam último movimento inimigo)
+        // 7. Counter-moves (refutam último movimento inimigo)
         else if is_counter_move(mv, context) {
-            score = 8_500;
+            score = 10_000;
         }
-        // 7. Checks (podem causar táticas)
+        // 8. Checks (podem causar táticas)
         else if gives_check_heuristic(board, mv) {
             score = 8_000;
         }
-        // 8. Histórico (moves que foram bons antes)
+        // 9. Histórico (moves que foram bons antes)
         else {
-            score = context.get_history_score(mv);
+            if let Some(piece) = board.get_piece_on_square(mv.from) {
+                score = context.get_history_score(mv, piece);
+            } else {
+                score = 0;
+            }
             
             // Bônus por desenvolvimento na abertura
             if is_development_move(board, mv) {
@@ -104,9 +118,13 @@ fn score_capture(board: &Board, mv: Move) -> i32 {
 
 /// Verifica se é counter-move (refuta último movimento)
 fn is_counter_move(mv: Move, context: &SearchContext) -> bool {
-    // Implementação básica - pode ser expandida
-    // Por enquanto, usa uma heurística simples
-    context.get_history_score(mv) > 100
+    if let Some(last_move) = context.get_last_move() {
+        // Verifica se é um counter-move registrado
+        if let Some(counter) = context.get_counter_move(last_move) {
+            return counter == mv;
+        }
+    }
+    false
 }
 
 /// Heurística rápida para detectar checks (sem fazer o movimento)
@@ -302,6 +320,15 @@ pub fn order_root_moves(board: &Board, moves: Vec<Move>) -> Vec<Move> {
         
         if board.is_capture(mv) {
             score = score_capture(board, mv);
+        } else if mv.promotion.is_some() {
+            // Promoções têm alta prioridade na root
+            score = match mv.promotion {
+                Some(PieceKind::Queen) => 25_000,
+                Some(PieceKind::Rook) => 23_000,
+                Some(PieceKind::Bishop) => 21_000,
+                Some(PieceKind::Knight) => 19_000,
+                _ => 17_000,
+            };
         } else if mv.is_castling {
             score = 15_000;
         } else if is_development_move(board, mv) {
@@ -315,4 +342,45 @@ pub fn order_root_moves(board: &Board, moves: Vec<Move>) -> Vec<Move> {
     
     scored_moves.sort_unstable_by(|a, b| b.1.cmp(&a.1));
     scored_moves.into_iter().map(|(mv, _)| mv).collect()
+}
+
+/// Funções auxiliares para integração com o sistema de busca
+
+/// Atualiza context após um cutoff (beta-cutoff)
+pub fn update_context_on_cutoff(
+    context: &mut SearchContext,
+    board: &Board,
+    best_move: Move,
+    depth: u8,
+    tried_moves: &[Move]
+) {
+    // 1. Adiciona killer move se não for captura
+    if !board.is_capture(best_move) && best_move.promotion.is_none() {
+        context.add_killer(best_move, depth);
+    }
+    
+    // 2. Atualiza history heuristic
+    if let Some(piece) = board.get_piece_on_square(best_move.from) {
+        // Movimento que causou cutoff é bom
+        context.update_history(best_move, piece, depth, true);
+    }
+    
+    // 3. Penaliza movimentos que foram tentados antes do cutoff
+    for &tried_move in tried_moves {
+        if tried_move != best_move {
+            if let Some(piece) = board.get_piece_on_square(tried_move.from) {
+                context.update_history(tried_move, piece, depth, false);
+            }
+        }
+    }
+    
+    // 4. Adiciona counter-move se há movimento anterior
+    if let Some(prev_move) = context.get_last_move() {
+        context.add_counter_move(prev_move, best_move);
+    }
+}
+
+/// Detecta se captura envolve promoção (captura + promoção)
+pub fn is_promotion_capture(board: &Board, mv: Move) -> bool {
+    mv.promotion.is_some() && board.is_capture(mv)
 }
