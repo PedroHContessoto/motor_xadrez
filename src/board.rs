@@ -24,14 +24,14 @@ pub struct Board {
     pub to_move: Color,
 
     pub en_passant_target: Option<u8>,
-    
+
     // Direitos de roque (pode_rocar_pequeno_brancas, pode_rocar_grande_brancas, pode_rocar_pequeno_pretas, pode_rocar_grande_pretas)
     pub castling_rights: u8, // Bits: 0=K, 1=Q, 2=k, 3=q
-    
+
     // Cache do estado de xeque para otimização
     pub white_king_in_check: bool,
     pub black_king_in_check: bool,
-    
+
     // Para detecção de draws
     pub halfmove_clock: u16,   // Contador para regra dos 50 movimentos
     pub zobrist_hash: u64,     // Hash Zobrist para detecção de repetição
@@ -106,7 +106,7 @@ impl Board {
                 'Q' => board.castling_rights |= 0b0010,
                 'k' => board.castling_rights |= 0b0100,
                 'q' => board.castling_rights |= 0b1000,
-                '-' => {}, 
+                '-' => {},
                 _ => return Err("Invalid castling".to_string()),
             }
         }
@@ -159,11 +159,11 @@ impl Board {
             halfmove_clock: 0,
             zobrist_hash: 0,
         };
-        
+
         board.zobrist_hash = board.compute_zobrist_hash();
         board
     }
-    
+
     /// Gera todos os lances pseudo-legais para todas as peças do jogador atual.
     pub fn generate_all_moves(&self) -> Vec<Move> {
         // Pre-aloca com capacidade estimada para reduzir realocações
@@ -383,21 +383,21 @@ impl Board {
             self.black_king_in_check
         }
     }
-    
+
     /// Atualiza o cache de estado de xeque para ambos os reis
     fn update_check_cache(&mut self) {
         self.white_king_in_check = self.compute_king_in_check(Color::White);
         self.black_king_in_check = self.compute_king_in_check(Color::Black);
     }
-    
+
     /// Calcula se o rei da cor especificada está em xeque (sem usar cache)
     fn compute_king_in_check(&self, color: Color) -> bool {
         // Encontra a posição do rei
         let king_bb = self.kings & if color == Color::White { self.white_pieces } else { self.black_pieces };
         if king_bb == 0 { return false; } // Não há rei (situação anormal)
-        
+
         let king_square = king_bb.trailing_zeros() as u8;
-        
+
         // Verifica se alguma peça inimiga pode atacar o rei
         self.is_square_attacked_by(king_square, !color)
     }
@@ -406,10 +406,10 @@ impl Board {
     pub fn is_square_attacked_by(&self, square: u8, attacking_color: Color) -> bool {
         let square_bb = 1u64 << square;
         let attacking_pieces = if attacking_color == Color::White { self.white_pieces } else { self.black_pieces };
-        
+
         // Early exit: se não há peças atacantes, não há ataques
         if attacking_pieces == 0 { return false; }
-        
+
         // Verifica ataques de peões (mais comuns, verificar primeiro)
         if attacking_color == Color::White {
             // Peões brancos atacam diagonalmente para cima
@@ -420,28 +420,28 @@ impl Board {
             let pawn_attacks = ((square_bb << 7) & 0x7f7f7f7f7f7f7f7f) | ((square_bb << 9) & 0xfefefefefefefefe);
             if (pawn_attacks & self.pawns & attacking_pieces) != 0 { return true; }
         }
-        
+
         // Verifica ataques de cavalos (rápido)
         if (self.knights & attacking_pieces) != 0 {
             let knight_attacks = self.get_knight_attacks(square);
             if (knight_attacks & self.knights & attacking_pieces) != 0 { return true; }
         }
-        
+
         // Verifica ataques do rei (rápido)
         if (self.kings & attacking_pieces) != 0 {
             let king_attacks = self.get_king_attacks(square);
             if (king_attacks & self.kings & attacking_pieces) != 0 { return true; }
         }
-        
+
         // Verifica ataques de peças deslizantes (mais lento, verificar por último)
         if (self.bishops & attacking_pieces) != 0 || (self.queens & attacking_pieces) != 0 {
             if self.is_attacked_by_sliding_piece(square, attacking_color, true) { return true; }
         }
-        
+
         if (self.rooks & attacking_pieces) != 0 || (self.queens & attacking_pieces) != 0 {
             if self.is_attacked_by_sliding_piece(square, attacking_color, false) { return true; }
         }
-        
+
         false
     }
 
@@ -456,32 +456,32 @@ impl Board {
     fn is_attacked_by_sliding_piece(&self, square: u8, attacking_color: Color, is_diagonal: bool) -> bool {
         let attacking_pieces = if attacking_color == Color::White { self.white_pieces } else { self.black_pieces };
         let all_pieces = self.white_pieces | self.black_pieces;
-        
+
         let directions = if is_diagonal { &[7i8, 9, -7, -9] } else { &[1i8, -1, 8, -8] };
-        let piece_types = if is_diagonal { 
-            (self.bishops | self.queens) & attacking_pieces 
-        } else { 
-            (self.rooks | self.queens) & attacking_pieces 
+        let piece_types = if is_diagonal {
+            (self.bishops | self.queens) & attacking_pieces
+        } else {
+            (self.rooks | self.queens) & attacking_pieces
         };
-        
+
         for &direction in directions {
             let mut current = square as i8;
             loop {
                 let prev = current;
                 current += direction;
-                
+
                 if current < 0 || current >= 64 { break; }
-                
+
                 // Verifica wrap-around
                 let prev_file = prev % 8;
                 let curr_file = current % 8;
                 if (curr_file - prev_file).abs() > 1 { break; }
-                
+
                 let current_bb = 1u64 << current;
-                
+
                 // Se encontrou uma peça atacante do tipo correto
                 if (current_bb & piece_types) != 0 { return true; }
-                
+
                 // Se encontrou qualquer peça, para a busca nesta direção
                 if (current_bb & all_pieces) != 0 { break; }
             }
@@ -494,7 +494,7 @@ impl Board {
         if !self.is_king_in_check(self.to_move) {
             return false;
         }
-        
+
         let moves = self.generate_all_moves();
         moves.iter().all(|&mv| {
             let mut temp = *self;
@@ -508,7 +508,7 @@ impl Board {
         if self.is_king_in_check(self.to_move) {
             return false;
         }
-        
+
         let moves = self.generate_all_moves();
         moves.iter().all(|&mv| {
             let mut temp = *self;
@@ -521,12 +521,12 @@ impl Board {
     pub fn is_draw_by_insufficient_material(&self) -> bool {
         let total_pieces = self.white_pieces | self.black_pieces;
         let piece_count = total_pieces.count_ones();
-        
+
         // King vs King
         if piece_count == 2 {
             return true;
         }
-        
+
         // King + minor piece vs King
         if piece_count == 3 {
             let has_major_pieces = (self.pawns | self.rooks | self.queens) != 0;
@@ -535,12 +535,12 @@ impl Board {
                 return minors.count_ones() == 1;
             }
         }
-        
+
         // King + Bishop vs King + Bishop (same color squares)
         if piece_count == 4 && (self.pawns | self.rooks | self.queens | self.knights) == 0 {
             let white_bishops = self.bishops & self.white_pieces;
             let black_bishops = self.bishops & self.black_pieces;
-            
+
             if white_bishops.count_ones() == 1 && black_bishops.count_ones() == 1 {
                 let light_squares = 0x55AA55AA55AA55AA;
                 let white_on_light = (white_bishops & light_squares) != 0;
@@ -548,7 +548,7 @@ impl Board {
                 return white_on_light == black_on_light;
             }
         }
-        
+
         false
     }
 
@@ -560,11 +560,11 @@ impl Board {
     /// Calcula o hash Zobrist da posição atual
     pub fn compute_zobrist_hash(&self) -> u64 {
         let mut hash = 0u64;
-        
+
         // Hash das peças
         for square in 0..64 {
             let bb = 1u64 << square;
-            
+
             if (self.white_pieces & bb) != 0 {
                 let color_idx = color_to_index(Color::White);
                 if (self.pawns & bb) != 0 {
@@ -597,20 +597,20 @@ impl Board {
                 }
             }
         }
-        
+
         // Hash dos direitos de roque
         hash ^= ZOBRIST_KEYS.castling[self.castling_rights as usize];
-        
+
         // Hash do en passant
         if let Some(ep_square) = self.en_passant_target {
             hash ^= ZOBRIST_KEYS.en_passant[(ep_square % 8) as usize];
         }
-        
+
         // Hash de quem joga
         if self.to_move == Color::Black {
             hash ^= ZOBRIST_KEYS.side_to_move;
         }
-        
+
         hash
     }
 
@@ -718,7 +718,7 @@ impl Board {
         let from_file = mv.from % 8;
         let to_rank = mv.to / 8;
         let to_file = mv.to % 8;
-        
+
         let rank_diff = (to_rank as i8 - from_rank as i8).abs();
         let file_diff = (to_file as i8 - from_file as i8).abs();
 
@@ -727,20 +727,20 @@ impl Board {
                 // Validação básica de peão (movimento detalhado é feito na geração)
                 let direction = if self.to_move == Color::White { 1 } else { -1 };
                 let expected_rank = (from_rank as i8 + direction) as u8;
-                
+
                 // Movimento de uma casa ou duas casas da posição inicial
-                if to_rank == expected_rank || 
-                   (to_rank == (from_rank as i8 + 2 * direction) as u8 && 
-                    ((self.to_move == Color::White && from_rank == 1) || 
-                     (self.to_move == Color::Black && from_rank == 6))) {
+                if to_rank == expected_rank ||
+                    (to_rank == (from_rank as i8 + 2 * direction) as u8 &&
+                        ((self.to_move == Color::White && from_rank == 1) ||
+                            (self.to_move == Color::Black && from_rank == 6))) {
                     return true;
                 }
-                
+
                 // Capturas diagonais
                 if rank_diff == 1 && file_diff == 1 {
                     return true;
                 }
-                
+
                 false
             },
             PieceKind::Knight => {
@@ -757,8 +757,8 @@ impl Board {
             },
             PieceKind::Queen => {
                 // Combinação de bispo e torre
-                (rank_diff == file_diff && rank_diff > 0) || 
-                ((rank_diff == 0 && file_diff > 0) || (file_diff == 0 && rank_diff > 0))
+                (rank_diff == file_diff && rank_diff > 0) ||
+                    ((rank_diff == 0 && file_diff > 0) || (file_diff == 0 && rank_diff > 0))
             },
             PieceKind::King => {
                 // Uma casa em qualquer direção (exceto roque que é tratado separadamente)
@@ -771,7 +771,7 @@ impl Board {
     fn is_castling_legal(&self, mv: Move) -> bool {
         let our_color = self.to_move;
         let enemy_color = !our_color;
-        
+
         // Verifica se ainda tem direito de rocar
         let (king_side_bit, queen_side_bit) = if our_color == Color::White {
             (0b0001, 0b0010)
@@ -872,7 +872,7 @@ impl Board {
                 return Err("White kingside castling right but no rook on h1".to_string());
             }
         }
-        
+
         if (self.castling_rights & 0b0010) != 0 { // Q branco
             if (self.kings & self.white_pieces & (1u64 << 4)) == 0 {
                 return Err("White king castling right but king not on e1".to_string());
@@ -921,15 +921,15 @@ impl Board {
     pub fn has_passed_pawn(&self, color: Color) -> bool {
         let my_pawns = if color == Color::White { self.white_pieces } else { self.black_pieces } & self.pawns;
         let enemy_pawns = if color == Color::White { self.black_pieces } else { self.white_pieces } & self.pawns;
-        
+
         let mut bb = my_pawns;
         while bb != 0 {
             let square = bb.trailing_zeros() as u8;
             bb &= bb - 1;
-            
+
             let file = square % 8;
             let rank = square / 8;
-            
+
             let front_span = if color == Color::White {
                 let mask = !((1u64 << (rank + 1) * 8) - 1);
                 mask & (0x0101010101010101u64 << file)
@@ -937,7 +937,7 @@ impl Board {
                 let mask = (1u64 << (rank * 8)) - 1;
                 mask & (0x0101010101010101u64 << file)
             };
-            
+
             // Verifica se há peões inimigos à frente
             if (enemy_pawns & front_span) == 0 {
                 return true;

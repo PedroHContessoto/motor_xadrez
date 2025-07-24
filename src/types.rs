@@ -14,7 +14,7 @@ pub enum Color {
 
 impl std::ops::Not for Color {
     type Output = Color;
-    
+
     fn not(self) -> Self::Output {
         match self {
             Color::White => Color::Black,
@@ -33,6 +33,20 @@ pub enum PieceKind {
     Queen,
     King,
 }
+
+impl PieceKind {
+    pub fn value(&self) -> i32 {
+        match self {
+            PieceKind::Pawn   => 100,
+            PieceKind::Knight => 320,
+            PieceKind::Bishop => 330,
+            PieceKind::Rook   => 500,
+            PieceKind::Queen  => 900,
+            PieceKind::King   => 20000, // Valor alto para evitar trocas
+        }
+    }
+}
+
 
 // Struct para representar uma peça no tabuleiro, combinando o tipo e a cor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -9,27 +9,27 @@ pub fn see(board: &Board, mv: Move) -> i32 {
     if !board.is_capture(mv) {
         return 0;
     }
-    
+
     let target = mv.to;
     let attacker_kind = board.get_piece_on_square(mv.from).unwrap();
     let victim_kind = board.get_piece_on_square(target);
-    
+
     if victim_kind.is_none() {
         return 0; // En passant ou erro
     }
-    
+
     let victim_value = PIECE_VALUES[victim_kind.unwrap() as usize];
     let attacker_value = PIECE_VALUES[attacker_kind as usize];
-    
+
     // Ganho inicial: valor da peça capturada
     let mut gain = victim_value;
-    
+
     // Simula recapturas em sequência
     let mut temp_board = *board;
     temp_board.make_move(mv);
-    
+
     let recapture_value = see_recapture(&temp_board, target, !board.to_move, attacker_value, 0);
-    
+
     gain - recapture_value.max(0)
 }
 
@@ -42,7 +42,7 @@ fn see_recapture(board: &Board, target_square: u8, side_to_move: Color, last_att
     // Encontra a peça menos valiosa que pode recapturar
     if let Some((recapture_sq, recapture_kind)) = find_least_valuable_attacker(board, target_square, side_to_move) {
         let recapture_value = PIECE_VALUES[recapture_kind as usize];
-        
+
         // Executa a recaptura
         let mut temp_board = *board;
         let recapture_move = Move {
@@ -52,12 +52,12 @@ fn see_recapture(board: &Board, target_square: u8, side_to_move: Color, last_att
             is_castling: false,
             is_en_passant: false,
         };
-        
+
         temp_board.make_move(recapture_move);
-        
+
         // Valor ganho: peça atacada menos valor da próxima recaptura
         let next_recapture = see_recapture(&temp_board, target_square, !side_to_move, recapture_value, depth + 1);
-        
+
         // Retorna o melhor entre recapturar ou não
         (last_attacker_value - next_recapture.max(0)).max(0)
     } else {
@@ -69,7 +69,7 @@ fn see_recapture(board: &Board, target_square: u8, side_to_move: Color, last_att
 /// Encontra o atacante menos valioso que pode atacar uma casa
 fn find_least_valuable_attacker(board: &Board, target: u8, color: Color) -> Option<(u8, PieceKind)> {
     let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    
+
     // Ordem de prioridade: Peão, Cavalo, Bispo, Torre, Rainha, Rei
     let piece_types = [
         (board.pawns & our_pieces, PieceKind::Pawn),
@@ -79,25 +79,25 @@ fn find_least_valuable_attacker(board: &Board, target: u8, color: Color) -> Opti
         (board.queens & our_pieces, PieceKind::Queen),
         (board.kings & our_pieces, PieceKind::King),
     ];
-    
+
     for (mut piece_bb, kind) in piece_types {
         while piece_bb != 0 {
             let sq = piece_bb.trailing_zeros() as u8;
             piece_bb &= piece_bb - 1;
-            
+
             if can_attack_square(board, sq, target, kind) {
                 return Some((sq, kind));
             }
         }
     }
-    
+
     None
 }
 
 /// Verifica se uma peça específica pode atacar uma casa
 fn can_attack_square(board: &Board, from_square: u8, target_square: u8, piece_kind: PieceKind) -> bool {
     let all_pieces = board.white_pieces | board.black_pieces;
-    
+
     match piece_kind {
         PieceKind::Pawn => {
             // Ataques de peão (diagonal)
@@ -134,19 +134,19 @@ fn pawn_can_attack(pawn_square: u8, target_square: u8, pawn_color: Color) -> boo
     let pawn_file = pawn_square % 8;
     let target_rank = target_square / 8;
     let target_file = target_square % 8;
-    
+
     match pawn_color {
         Color::White => {
             // Brancas atacam para cima
-            target_rank == pawn_rank + 1 && 
-            (target_file == pawn_file + 1 || target_file + 1 == pawn_file) && 
-            pawn_file < 8 && target_file < 8
+            target_rank == pawn_rank + 1 &&
+                (target_file == pawn_file + 1 || target_file + 1 == pawn_file) &&
+                pawn_file < 8 && target_file < 8
         },
         Color::Black => {
             // Pretas atacam para baixo  
             pawn_rank > 0 && target_rank == pawn_rank - 1 &&
-            (target_file == pawn_file + 1 || target_file + 1 == pawn_file) &&
-            pawn_file < 8 && target_file < 8
+                (target_file == pawn_file + 1 || target_file + 1 == pawn_file) &&
+                pawn_file < 8 && target_file < 8
         }
     }
 }

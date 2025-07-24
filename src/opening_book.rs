@@ -305,7 +305,7 @@ impl OpeningBook {
         ]);
 
         // === MAIS VARIAÇÕES DAS ABERTURAS PRINCIPAIS ===
-        
+
         // Ruy Lopez - Mais variações
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),

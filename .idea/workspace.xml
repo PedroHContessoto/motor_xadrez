@@ -13,7 +13,34 @@
   <component name="ChangeListManager">
     <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="arrumando arrumando busca e inteligencia">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/threats.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/threats.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/board.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/board.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/endgame_patterns.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/endgame_patterns.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/game_phase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/game_phase.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/king_safety.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/king_safety.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/material.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/material.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/bishop_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/bishop_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/coordination.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/coordination.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/king_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/king_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/knight_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/knight_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/pawn_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/pawn_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/queen_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/queen_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/rook_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/rook_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/pawn_structure.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/pawn_structure.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/utils.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/utils.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/opening_book.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/opening_book.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/context.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/context.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/find_best.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/find_best.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/ordering.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/ordering.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/quiescence.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/quiescence.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/see.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/see.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/transposition.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/transposition.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/types.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/zobrist.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/zobrist.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

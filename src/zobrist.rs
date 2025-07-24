@@ -16,10 +16,10 @@ impl ZobristKeys {
             en_passant: [0; 8],
             side_to_move: 0,
         };
-        
+
         // Gera chaves pseudo-aleatórias determinísticas
         let mut counter = 0u64;
-        
+
         for color in 0..2 {
             for piece in 0..6 {
                 for square in 0..64 {
@@ -28,25 +28,25 @@ impl ZobristKeys {
                 }
             }
         }
-        
+
         for i in 0..16 {
             keys.castling[i] = Self::hash_value(counter);
             counter += 1;
         }
-        
+
         for i in 0..8 {
             keys.en_passant[i] = Self::hash_value(counter);
             counter += 1;
         }
-        
+
         keys.side_to_move = Self::hash_value(counter);
-        
+
         keys
     }
-    
+
     fn hash_value(seed: u64) -> u64 {
         use std::hash::{DefaultHasher, Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         seed.hash(&mut hasher);
         hasher.finish()

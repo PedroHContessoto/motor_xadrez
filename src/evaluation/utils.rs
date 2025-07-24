@@ -18,7 +18,7 @@ pub fn manhattan_distance(sq1: u8, sq2: u8) -> i32 {
     let file1 = (sq1 % 8) as i32;
     let rank2 = (sq2 / 8) as i32;
     let file2 = (sq2 % 8) as i32;
-    
+
     (rank1 - rank2).abs() + (file1 - file2).abs()
 }
 
@@ -28,10 +28,10 @@ pub fn calculate_square_distance(sq1: u8, sq2: u8) -> i32 {
     let file1 = (sq1 % 8) as i32;
     let rank2 = (sq2 / 8) as i32;
     let file2 = (sq2 % 8) as i32;
-    
+
     let rank_diff = (rank1 - rank2).abs();
     let file_diff = (file1 - file2).abs();
-    
+
     rank_diff.max(file_diff)
 }
 
@@ -73,7 +73,7 @@ pub fn get_diagonal_mask(sq: u8) -> Bitboard {
     let rank = (sq / 8) as i32;
     let file = (sq % 8) as i32;
     let mut mask = 0u64;
-    
+
     // Diagonal principal (cima-direita e baixo-esquerda)
     for i in 1..8 {
         let new_rank = rank + i;
@@ -81,14 +81,14 @@ pub fn get_diagonal_mask(sq: u8) -> Bitboard {
         if new_rank < 8 && new_file < 8 {
             mask |= 1u64 << (new_rank * 8 + new_file);
         }
-        
+
         let new_rank = rank - i;
         let new_file = file - i;
         if new_rank >= 0 && new_file >= 0 {
             mask |= 1u64 << (new_rank * 8 + new_file);
         }
     }
-    
+
     // Diagonal secundária (cima-esquerda e baixo-direita)
     for i in 1..8 {
         let new_rank = rank + i;
@@ -96,14 +96,14 @@ pub fn get_diagonal_mask(sq: u8) -> Bitboard {
         if new_rank < 8 && new_file >= 0 {
             mask |= 1u64 << (new_rank * 8 + new_file);
         }
-        
+
         let new_rank = rank - i;
         let new_file = file + i;
         if new_rank >= 0 && new_file < 8 {
             mask |= 1u64 << (new_rank * 8 + new_file);
         }
     }
-    
+
     mask
 }
 

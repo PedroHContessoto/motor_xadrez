@@ -71,7 +71,7 @@ impl SearchContext {
         let piece_idx = piece_type as usize;
         let from_idx = mv.from as usize;
         let to_idx = mv.to as usize;
-        
+
         if piece_idx < 6 && from_idx < 64 && to_idx < 64 {
             let bonus = (depth as i32) * (depth as i32);
             if is_good {
@@ -95,19 +95,19 @@ impl SearchContext {
         let piece_idx = piece_type as usize;
         let from_idx = mv.from as usize;
         let to_idx = mv.to as usize;
-        
+
         if piece_idx < 6 && from_idx < 64 && to_idx < 64 {
             self.history[piece_idx][from_idx][to_idx]
         } else {
             0
         }
     }
-    
+
     /// Counter moves: armazena resposta eficaz ao movimento anterior
     pub fn add_counter_move(&mut self, prev_move: Move, counter_move: Move) {
         let from_idx = prev_move.from as usize;
         let to_idx = prev_move.to as usize;
-        
+
         if from_idx < 64 && to_idx < 64 {
             self.counter_moves[from_idx][to_idx] = Some(counter_move);
         }
@@ -116,7 +116,7 @@ impl SearchContext {
     pub fn get_counter_move(&self, prev_move: Move) -> Option<Move> {
         let from_idx = prev_move.from as usize;
         let to_idx = prev_move.to as usize;
-        
+
         if from_idx < 64 && to_idx < 64 {
             self.counter_moves[from_idx][to_idx]
         } else {
@@ -157,7 +157,7 @@ impl SearchContext {
     pub fn update_pv(&mut self, ply: usize, best_move: Move) {
         if ply < 64 {
             self.pv_table[ply][ply] = Some(best_move);
-            
+
             // Copy PV from child node
             for i in (ply + 1)..64 {
                 if ply + 1 < 64 && i < 64 {
@@ -169,7 +169,7 @@ impl SearchContext {
                     break;
                 }
             }
-            
+
             // Update PV length
             self.pv_length[ply] = 1;
             if ply + 1 < 64 {

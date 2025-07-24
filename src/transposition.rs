@@ -68,13 +68,23 @@ impl TranspositionTable {
     }
 
     /// Guarda uma nova entrada na tabela com esquema de substituição inteligente.
+    pub fn resize(&mut self, size_mb: usize) {
+        let entry_size = std::mem::size_of::<TTEntry>();
+        let num_entries = (size_mb * 1024 * 1024) / entry_size;
+        self.entries = vec![TTEntry::empty(); num_entries];
+        self.size = num_entries;
+    }
+
+    // Melhorar esquema de substituição
     pub fn store(&mut self, key: u64, best_move: Option<Move>, score: i32, depth: u8, entry_type: EntryType) {
         let index = (key as usize) % self.size;
         let existing = &self.entries[index];
-        
-        // Esquema de substituição depth-preferred:
-        // Só substitui se a nova entrada tiver maior profundidade, for exata, ou a entrada atual estiver vazia
-        if existing.key == 0 || depth >= existing.depth || entry_type == EntryType::Exact {
+
+        // Substituição mais inteligente
+        if existing.key == 0 ||
+            existing.key == key ||
+            depth >= existing.depth + 2 || // Priorizar depths maiores
+            entry_type == EntryType::Exact {
             self.entries[index] = TTEntry { key, best_move, score, depth, entry_type };
         }
     }
