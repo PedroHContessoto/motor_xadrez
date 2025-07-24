@@ -25,6 +25,9 @@ pub fn evaluate(board: &Board) -> i32 {
     // Adiciona tempo/iniciativa
     final_score += evaluate_tempo(board);
 
+    // Material Safety Net: penaliza avaliações excessivamente otimistas
+    final_score = apply_material_safety_net(board, final_score);
+
     // Retorna relativo ao jogador atual
     if board.to_move == Color::White {
         final_score
@@ -40,17 +43,17 @@ fn evaluate_color(board: &Board, color: Color, game_phase: &game_phase::GamePhas
     // Material + PST
     score += material::evaluate_material_and_pst(board, color, game_phase);
 
-    // Estrutura de peões (incluindo passados)
-    score += pawn_structure::evaluate_pawn_structure(board, color);
+    // Estrutura de peões (incluindo passados) - CAP: ±120
+    score += pawn_structure::evaluate_pawn_structure(board, color).clamp(-120, 120);
 
-    // Mobilidade segura
-    score += mobility::evaluate_mobility(board, color);
+    // Mobilidade segura - CAP: ±100
+    score += mobility::evaluate_mobility(board, color).clamp(-100, 100);
 
-    // Segurança do rei (aprimorada)
-    score += king_safety::evaluate_king_safety(board, color, game_phase);
+    // Segurança do rei (aprimorada) - CAP: ±150
+    score += king_safety::evaluate_king_safety(board, color, game_phase).clamp(-150, 150);
 
-    // NOVO: Avaliação de ameaças (peças penduradas, ataques)
-    score += threats::evaluate_threats(board, color);
+    // NOVO: Avaliação de ameaças (peças penduradas, ataques) - CAP: ±80
+    score += threats::evaluate_threats(board, color).clamp(-80, 80);
 
     // Avaliações específicas por fase
     match game_phase {
@@ -157,4 +160,41 @@ fn evaluate_king_activity(board: &Board, color: Color) -> i32 {
         .count_ones() as i32 * 5;
 
     centralization_bonus + king_mobility
+}
+
+/// Material Safety Net: previne avaliações excessivamente otimistas
+fn apply_material_safety_net(board: &Board, mut score: i32) -> i32 {
+    // Calcula diferença material real
+    let white_material = calculate_raw_material(board, Color::White);
+    let black_material = calculate_raw_material(board, Color::Black);
+    let material_diff = white_material - black_material;
+    
+    // Se a avaliação é muito mais otimista que o material, aplica penalty
+    let score_vs_material_diff = score - material_diff;
+    
+    if score_vs_material_diff.abs() > 200 {
+        // Avaliação posicional muito extrema (>200cp vs material)
+        let penalty = (score_vs_material_diff.abs() - 200) / 3;
+        
+        if score_vs_material_diff > 0 {
+            score -= penalty; // Reduz avaliação otimista excessiva
+        } else {
+            score += penalty; // Reduz avaliação pessimista excessiva
+        }
+    }
+    
+    score
+}
+
+/// Calcula material bruto (sem PST ou bônus)
+fn calculate_raw_material(board: &Board, color: Color) -> i32 {
+    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    
+    let pawns = (board.pawns & pieces).count_ones() as i32 * 100;
+    let knights = (board.knights & pieces).count_ones() as i32 * 320;
+    let bishops = (board.bishops & pieces).count_ones() as i32 * 330;
+    let rooks = (board.rooks & pieces).count_ones() as i32 * 500;
+    let queens = (board.queens & pieces).count_ones() as i32 * 900;
+    
+    pawns + knights + bishops + rooks + queens
 }

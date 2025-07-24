@@ -36,35 +36,37 @@ pub fn evaluate_king_safety(board: &Board, color: Color, game_phase: &GamePhase)
     // 4. NOVO: Tropismo - Penaliza proximidade de peças inimigas
     score -= evaluate_tropism(board, color, king_square);
 
-    // 5. CRÍTICO: Penalidade MASSIVA por rei exposto no meio-jogo
+    // 5. Penalidade inteligente por rei exposto no meio-jogo
     if !matches!(game_phase, GamePhase::Endgame) {
         let king_rank = rank;
         let king_file = file;
 
-        // Rei fora da primeira/última fileira = PERIGO
+        // Penalidade progressiva por rei exposto (mais balanceada)
         let exposed_penalty = match color {
             Color::White => {
-                if king_rank > 1 { // Rei branco acima da 2ª fileira
-                    -200 * (king_rank as i32) // -400 na 3ª, -600 na 4ª, etc.
+                if king_rank > 1 {
+                    // Penalidade crescente: -30 na 3ª, -60 na 4ª, -100 na 5ª, etc.
+                    -(30 + (king_rank as i32 - 2) * 30)
                 } else { 0 }
             },
             Color::Black => {
-                if king_rank < 6 { // Rei preto abaixo da 7ª fileira
-                    -200 * (6 - king_rank as i32) // -200 na 6ª, -400 na 5ª, etc.
+                if king_rank < 6 {
+                    // Penalidade similar para pretas
+                    -(30 + (5 - king_rank as i32) * 30)
                 } else { 0 }
             }
         };
 
         score += exposed_penalty;
 
-        // Penalidade adicional se não fez roque e perdeu direitos
+        // Penalidade por não ter feito roque quando necessário
         if !has_castled(board, color) && !can_castle(board, color) {
-            score -= 150; // Penalidade severa
+            score -= 60; // Penalidade moderada mas significativa
         }
 
-        // Penalidade extra por rei no centro
-        if king_file >= 2 && king_file <= 5 && (king_rank >= 2 && king_rank <= 5) {
-            score -= 100; // Rei no centro = muito perigoso
+        // Penalidade por rei no centro (apenas em posições muito expostas)
+        if king_file >= 3 && king_file <= 4 && (king_rank >= 3 && king_rank <= 4) {
+            score -= 40; // Rei no centro = perigoso mas não extremo
         }
     }
 

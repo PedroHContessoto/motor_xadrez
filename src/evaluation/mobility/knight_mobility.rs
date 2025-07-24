@@ -20,14 +20,14 @@ pub struct KnightWeights {
 impl Default for KnightWeights {
     fn default() -> Self {
         KnightWeights {
-            mobility_per_square: [4, 4, 3],      // Menos importante no final
-            safe_mobility_bonus: [2, 3, 2],      // Pico no meio-jogo
-            outpost_bonus: [15, 25, 20],         // Muito valioso no meio-jogo
-            central_knight: [10, 15, 8],         // Centralização importante
-            edge_penalty: [-5, -8, -3],          // Evitar bordas no meio-jogo
-            fork_threat: [8, 15, 10],            // Táticas valiosas
-            defender_bonus: [5, 8, 4],           // Defesa importante
-            blockade_bonus: [8, 12, 20],        // Muito mais valioso no final
+            mobility_per_square: [2, 2, 1],      // Reduzido de [4,4,3] -> [2,2,1]
+            safe_mobility_bonus: [1, 1, 1],      // Reduzido de [2,3,2] -> [1,1,1]  
+            outpost_bonus: [6, 10, 8],           // Reduzido de [15,25,20] -> [6,10,8]
+            central_knight: [4, 6, 3],           // Reduzido de [10,15,8] -> [4,6,3]
+            edge_penalty: [-2, -3, -1],          // Reduzido de [-5,-8,-3] -> [-2,-3,-1]
+            fork_threat: [3, 6, 4],              // Reduzido de [8,15,10] -> [3,6,4]
+            defender_bonus: [2, 3, 2],           // Reduzido de [5,8,4] -> [2,3,2]
+            blockade_bonus: [3, 5, 8],           // Reduzido de [8,12,20] -> [3,5,8]
         }
     }
 }

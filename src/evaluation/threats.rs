@@ -212,7 +212,7 @@ fn evaluate_knight_forks(board: &Board, color: Color) -> i32 {
             }
 
             if viable_royal_fork {
-                bonus += 50; // Fork real é muito valioso
+                bonus += 25; // Fork real (reduzido de 50 -> 25)
             }
         }
     }
@@ -290,7 +290,7 @@ fn evaluate_queen_forks(board: &Board, color: Color) -> i32 {
             }
 
             if viable_royal_fork {
-                bonus += 70; // Fork real com rainha é devastador
+                bonus += 35; // Fork real com rainha (reduzido de 70 -> 35)
             }
         }
     }
@@ -622,12 +622,12 @@ fn evaluate_real_pins(board: &Board, color: Color) -> i32 {
                 // Pin real detectado!
                 let piece_value = MATERIAL_VALUES[piece_kind as usize];
 
-                // Bônus baseado no valor da peça pinada
+                // Bônus baseado no valor da peça pinada (reduzido 50%)
                 let pin_bonus = match piece_value {
-                    v if v >= 900 => 80,  // Rainha pinada = excelente
-                    v if v >= 500 => 50,  // Torre pinada = muito bom
-                    v if v >= 300 => 30,  // Cavalo/Bispo pinado = bom
-                    _ => 15               // Peão pinado = ok
+                    v if v >= 900 => 40,  // Rainha pinada (era 80 -> 40)
+                    v if v >= 500 => 25,  // Torre pinada (era 50 -> 25)
+                    v if v >= 300 => 15,  // Cavalo/Bispo pinado (era 30 -> 15)
+                    _ => 8                // Peão pinado (era 15 -> 8)
                 };
 
                 bonus += pin_bonus;

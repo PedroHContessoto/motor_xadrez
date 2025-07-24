@@ -20,15 +20,15 @@ pub fn evaluate_rook_mobility_advanced(context: &MobilityContext) -> i32 {
         let legal_squares = attacks & !context.our_pieces;
         let safe_squares = legal_squares & !context.enemy_attacked_squares;
 
-        total_score += legal_squares.count_ones() as i32 * 2;
-        total_score += safe_squares.count_ones() as i32 * 3;
+        total_score += legal_squares.count_ones() as i32 * 1;  // Reduzido de *2 -> *1
+        total_score += safe_squares.count_ones() as i32 * 1;  // Reduzido de *3 -> *1
 
         // Bônus por arquivo aberto
         if is_open_file(file, context) {
             total_score += match context.phase {
-                GamePhase::Opening => 8,
-                GamePhase::MiddleGame => 15,
-                GamePhase::Endgame => 10,
+                GamePhase::Opening => 3,  // Reduzido de 8 -> 3
+                GamePhase::MiddleGame => 6,  // Reduzido de 15 -> 6
+                GamePhase::Endgame => 4,  // Reduzido de 10 -> 4
             };
 
             // Bônus extra se penetra no território inimigo

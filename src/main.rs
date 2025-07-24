@@ -67,23 +67,30 @@ impl TimeManager {
             // Detecta características táticas da posição
             let tactical_factors = self.analyze_position_complexity(board);
 
-            // CORREÇÃO: Gestão mais conservadora do tempo
-            let mut base_divisor = if moves_played < 15 {
-                35  // Era 20, agora 35 (mais conservador na abertura)
-            } else if moves_played < 35 {
-                25  // Era 12, agora 25 (meio-jogo equilibrado)
+            // Gestão equilibrada do tempo baseada na fase do jogo
+            let mut base_divisor = if moves_played < 10 {
+                30  // Abertura: tempo moderado
+            } else if moves_played < 25 {
+                20  // Meio-jogo: mais tempo para decisões críticas
+            } else if moves_played < 50 {
+                25  // Final médio: balanceado
             } else {
-                20  // Era 15, agora 20 (final ainda tem tempo bom)
+                18  // Final técnico: mais tempo para cálculo preciso
             };
 
-            // Ajusta o divisor baseado em fatores táticos
+            // Ajustes inteligentes baseados na complexidade
             if tactical_factors.is_tactical {
-                base_divisor = (base_divisor as f32 * 0.8) as u64; // Era 0.6, agora 0.8
+                base_divisor = (base_divisor as f32 * 0.75) as u64; // 25% mais tempo em posições táticas
+                
+                // Ajustes graduais para situações específicas
                 if tactical_factors.has_hanging_pieces {
-                    base_divisor = base_divisor.saturating_sub(1); // Era 2
+                    base_divisor = base_divisor.saturating_sub(2); // Mais tempo para salvar peças
                 }
                 if tactical_factors.in_check {
-                    base_divisor = base_divisor.saturating_sub(1); // Mantido
+                    base_divisor = base_divisor.saturating_sub(3); // Muito mais tempo em xeque
+                }
+                if tactical_factors.is_critical {
+                    base_divisor = base_divisor.saturating_sub(2); // Tempo extra para posições críticas
                 }
             }
 
@@ -246,7 +253,7 @@ fn main() {
                     println!("id author Pedro Contessoto");
 
                     // Opções UCI configuráveis
-                    println!("option name Hash type spin default 16 min 1 max 1024");
+                    println!("option name Hash type spin default 128 min 16 max 2048");
                     println!("option name Threads type spin default 1 min 1 max 1");
                     println!("option name Ponder type check default false");
                     println!("option name MultiPV type spin default 1 min 1 max 5");

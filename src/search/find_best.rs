@@ -28,34 +28,61 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     let mut fallback_move = legal_moves[0];
     let mut fallback_score = evaluation::evaluate(board);
 
-    // Detecta se é posição tática para ajuste de tempo
-    let is_tactical_position = detect_tactical_position(board);
-    let tactical_time_multiplier = if is_tactical_position { 1.5 } else { 1.0 };
-    let effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
+    // Detecta complexidade da posição para ajuste inteligente de tempo
+    let tactical_level = evaluate_position_complexity(board);
+    let tactical_time_multiplier = match tactical_level {
+        3 => 1.5,   // Reduzido de 1.3 -> 1.5 (era 2.0)
+        2 => 1.2,   // Reduzido de 1.15 -> 1.2 (era 1.4)
+        1 => 1.1,   // Reduzido de 1.05 -> 1.1 (era 1.15)
+        _ => 1.0    // Posição normal
+    };
+    let _effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
+    
+    // DEBUG: Log inicial detalhado
+    println!("DEBUG: Starting search - max_time_ms: {}, tactical_level: {}, multiplier: {:.2}", 
+             max_time_ms, tactical_level, tactical_time_multiplier);
 
     for depth in 1..=max_depth { // CORREÇÃO: Remove limite artificial de depth 8
+        let iteration_start = std::time::Instant::now();
         let elapsed = start_time.elapsed().as_millis() as u64;
 
         // Update search context for logging
         context.current_depth = depth;
         context.nodes_searched = 0; // Reset for this depth
+        
+        // DEBUG: Log início da iteração
+        println!("DEBUG: Starting depth {}, total_elapsed: {}ms", depth, elapsed);
 
-        // Time management adaptado para posições táticas
-        if depth > 12 && elapsed > effective_time_limit {
-            // Em posições táticas, permite mais tempo até depth 18
-            if !is_tactical_position || depth > 18 {
-                break;
-            }
+        // Time management com limits seguros
+        let base_timeout = max_time_ms / 25;  // Mais generoso: 1/25 do tempo (era 1/30)
+        let max_timeout = max_time_ms / 6;    // Mais generoso: 1/6 do tempo (era 1/8)
+        
+        let adjusted_timeout = (base_timeout as f32 * tactical_time_multiplier) as u64;
+        let final_timeout = adjusted_timeout.min(max_timeout);
+        
+        // CRÍTICO: Depth limit muito mais conservador
+        let max_safe_depth = match tactical_level {
+            3 => 8,   // Era 20 -> 8 (redução drástica)
+            2 => 7,   // Era 16 -> 7
+            1 => 6,   // Era 14 -> 6
+            _ => 6    // Era 12 -> 6
+        };
+        
+        if depth > max_safe_depth {
+            println!("DEBUG: Depth limit reached at {}", depth);
+            break;
+        }
+        
+        if depth > 4 && elapsed > final_timeout {
+            println!("DEBUG: Time limit reached at depth {}, elapsed: {}ms, limit: {}ms", 
+                     depth, elapsed, final_timeout);
+            break;
         }
 
-        // Timeout absoluto mais generoso para posições táticas
-        let absolute_limit = if is_tactical_position {
-            max_time_ms * 4 // 4x mais tempo em posições táticas críticas
-        } else {
-            max_time_ms * 3
-        };
-
+        // Hard timeout absoluto
+        let absolute_limit = max_time_ms / 2;  // Muito conservador: 1/2 do tempo (era 1/4)
         if elapsed > absolute_limit {
+            println!("DEBUG: HARD TIMEOUT at {}ms (limit: {}ms)", elapsed, absolute_limit);
             break;
         }
 
@@ -70,8 +97,15 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
             pvs_search(board, depth, -50000, 50000, tt, &mut context, start_time, max_time_ms, true)
         };
 
+        // DEBUG: Log tempo da iteração
+        let iteration_time = iteration_start.elapsed().as_millis();
+        let total_elapsed = start_time.elapsed().as_millis();
+        println!("DEBUG: Depth {} completed in {}ms, total: {}ms, nodes: {}", 
+                 depth, iteration_time, total_elapsed, context.nodes_searched);
+
         // Se parou por timeout, usa o que temos
         if context.should_stop {
+            println!("DEBUG: Search stopped by timeout flag at depth {}", depth);
             break;
         }
 
@@ -138,27 +172,37 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
 }
 
 
-/// Detecta se a posição atual é tática (precisa de mais tempo/profundidade)
-fn detect_tactical_position(board: &Board) -> bool {
+/// Avalia complexidade da posição em níveis (0-3)
+fn evaluate_position_complexity(board: &Board) -> u8 {
     let our_color = board.to_move;
     let enemy_color = !our_color;
+    let mut complexity_score = 0u8;
 
-    // 1. Estamos em xeque?
+    // 1. Fatores de complexidade imediata (+2 pontos cada)
     if board.is_king_in_check(our_color) {
-        return true;
+        complexity_score += 2; // Xeque = alta complexidade
     }
 
-    // 2. Há peças penduradas (atacadas sem defesa)?
+    // 2. Análise de peças atacadas/penduradas
     let our_pieces = if our_color == crate::types::Color::White {
+        board.white_pieces
+    } else {
+        board.black_pieces
+    };
+    let enemy_pieces = if enemy_color == crate::types::Color::White {
         board.white_pieces
     } else {
         board.black_pieces
     };
 
     let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
+    let enemy_valuables = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
+    
     let mut hanging_count = 0;
     let mut attacked_count = 0;
+    let mut enemy_hanging = 0;
 
+    // Analisa nossas peças
     let mut bb = our_valuables;
     while bb != 0 {
         let sq = bb.trailing_zeros() as u8;
@@ -172,21 +216,7 @@ fn detect_tactical_position(board: &Board) -> bool {
         }
     }
 
-    // 3. Muitas peças atacadas indica complexidade tática
-    if hanging_count > 0 || attacked_count > 2 {
-        return true;
-    }
-
-    // 4. Verifica se o inimigo também tem peças penduradas (oportunidades táticas)
-    let enemy_pieces = if enemy_color == crate::types::Color::White {
-        board.white_pieces
-    } else {
-        board.black_pieces
-    };
-
-    let enemy_valuables = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
-    let mut enemy_hanging = 0;
-
+    // Analisa peças inimigas
     let mut enemy_bb = enemy_valuables;
     while enemy_bb != 0 {
         let sq = enemy_bb.trailing_zeros() as u8;
@@ -198,17 +228,32 @@ fn detect_tactical_position(board: &Board) -> bool {
         }
     }
 
+    // 3. Pontuação baseada em ameaças
+    if hanging_count > 0 {
+        complexity_score += 2; // Temos peças penduradas = muito complexo
+    }
     if enemy_hanging > 0 {
-        return true;
+        complexity_score += 1; // Podemos ganhar material = complexo
+    }
+    if attacked_count > 2 {
+        complexity_score += 1; // Muitas peças sob ataque = complexo
     }
 
-    // 5. Posições de final com poucos peões são complexas
+    // 4. Análise da fase do jogo
     let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
     let total_pawns = board.pawns.count_ones();
+    let queens_on_board = board.queens.count_ones();
 
-    if total_pieces <= 10 && total_pawns <= 4 {
-        return true; // Finais técnicos complexos
+    // Finais técnicos complexos
+    if total_pieces <= 8 && total_pawns <= 3 {
+        complexity_score += 1;
+    }
+    
+    // Meio-jogo com muitas peças = potencial tático
+    if total_pieces > 20 && queens_on_board >= 2 {
+        complexity_score += 1;
     }
 
-    false
+    // 5. Limita o score máximo a 3
+    complexity_score.min(3)
 }

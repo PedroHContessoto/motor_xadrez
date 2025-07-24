@@ -67,20 +67,44 @@ pub fn order_moves(
         else if gives_check_heuristic(board, mv) {
             score = 500_000;
         }
-        // 9. CRÍTICO: Penaliza movimentos de rei no meio-jogo
+        // 9. Avaliação inteligente de movimentos de rei
         else if board.get_piece_on_square(mv.from) == Some(PieceKind::King) {
-            // Verifica se não é final de jogo (heurística simples)
             let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
-            if total_pieces > 10 { // Não é endgame
-                score = 50_000; // Muito baixa prioridade
-
-                // Exceção para roque - ainda é bom
-                if mv.is_castling {
-                    score = 750_000; // Alta prioridade para roque
+            let queens_on_board = board.queens.count_ones();
+            
+            // Roque sempre tem alta prioridade
+            if mv.is_castling {
+                score = 750_000;
+            }
+            // No endgame (poucos peões/peças), rei ativo é bom
+            else if total_pieces <= 8 || (total_pieces <= 12 && queens_on_board == 0) {
+                score = 400_000; // Rei ativo no endgame
+            }
+            // No meio-jogo, depende da segurança
+            else {
+                let king_rank = (mv.to / 8) as usize;
+                let king_file = (mv.to % 8) as usize;
+                
+                // Penaliza movimentos para o centro/frente
+                let safety_penalty = match board.to_move {
+                    Color::White => {
+                        if king_rank > 2 { 200_000 } // Rei muito avançado
+                        else if king_rank > 1 { 150_000 } // Rei moderadamente exposto
+                        else { 300_000 } // Movimento na primeira fileira ok
+                    },
+                    Color::Black => {
+                        if king_rank < 5 { 200_000 } // Rei muito avançado
+                        else if king_rank < 6 { 150_000 } // Rei moderadamente exposto  
+                        else { 300_000 } // Movimento na última fileira ok
+                    }
+                };
+                
+                // Penalidade extra por mover para o centro
+                if king_file >= 3 && king_file <= 4 {
+                    score = safety_penalty - 50_000;
+                } else {
+                    score = safety_penalty;
                 }
-            } else {
-                // No endgame, rei ativo é bom
-                score = 400_000;
             }
         }
         // 10. Histórico (moves que foram bons antes)

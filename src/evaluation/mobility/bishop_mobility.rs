@@ -18,14 +18,14 @@ pub struct BishopWeights {
 impl Default for BishopWeights {
     fn default() -> Self {
         BishopWeights {
-            mobility_per_square: [3, 4, 4],      // Mais importante no final
-            long_diagonal: [12, 15, 10],         // Pico no meio-jogo
-            bishop_pair: [20, 30, 40],           // Muito valioso no final
-            fianchetto: [8, 10, 6],              // Principalmente meio-jogo
-            trapped_penalty: [-25, -30, -20],    // Muito prejudicial
-            color_complex: [8, 12, 15],          // Mais importante no final
-            pin_potential: [6, 10, 8],           // Táticas valiosas
-            diagonal_dominance: [5, 8, 6],       // Controle de território
+            mobility_per_square: [1, 2, 2],      // Reduzido de [3,4,4] -> [1,2,2]
+            long_diagonal: [5, 6, 4],            // Reduzido de [12,15,10] -> [5,6,4]
+            bishop_pair: [8, 12, 16],            // Reduzido de [20,30,40] -> [8,12,16]
+            fianchetto: [3, 4, 2],               // Reduzido de [8,10,6] -> [3,4,2]
+            trapped_penalty: [-10, -12, -8],     // Reduzido de [-25,-30,-20] -> [-10,-12,-8]
+            color_complex: [3, 5, 6],            // Reduzido de [8,12,15] -> [3,5,6]
+            pin_potential: [2, 4, 3],            // Reduzido de [6,10,8] -> [2,4,3]
+            diagonal_dominance: [2, 3, 2],       // Reduzido de [5,8,6] -> [2,3,2]
         }
     }
 }
