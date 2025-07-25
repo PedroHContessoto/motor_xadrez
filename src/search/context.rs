@@ -206,4 +206,37 @@ impl SearchContext {
             .join(" ")
     }
 
+    /// Obtém idade do killer move (0 = mais recente)
+    pub fn get_killer_age(&self, mv: Move, depth: u8) -> i32 {
+        let depth_idx = depth as usize;
+        if depth_idx < 64 {
+            if self.killer_moves[depth_idx][0] == Some(mv) {
+                0 // Killer mais recente
+            } else if self.killer_moves[depth_idx][1] == Some(mv) {
+                1 // Killer mais antigo
+            } else {
+                999 // Não é killer
+            }
+        } else {
+            999
+        }
+    }
+
+    /// Butterfly heuristic - frequência de movimentos independente do resultado
+    pub fn get_butterfly_score(&self, mv: Move) -> i32 {
+        // Implementação simplificada baseada na casa de destino
+        // Em uma implementação completa, isso seria uma tabela separada
+        let to_idx = mv.to as usize;
+        if to_idx < 64 {
+            // Heurística simples: casas centrais são mais valiosas
+            let rank = (mv.to / 8) as i32;
+            let file = (mv.to % 8) as i32;
+            let center_distance = ((rank as f32 - 3.5).abs() + (file as f32 - 3.5).abs()) as i32;
+            
+            1000 - (center_distance * 100)
+        } else {
+            0
+        }
+    }
+
 }

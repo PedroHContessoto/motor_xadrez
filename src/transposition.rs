@@ -88,4 +88,11 @@ impl TranspositionTable {
             self.entries[index] = TTEntry { key, best_move, score, depth, entry_type };
         }
     }
+
+    /// Limpa todas as entradas da tabela
+    pub fn clear(&mut self) {
+        for entry in &mut self.entries {
+            *entry = TTEntry::empty();
+        }
+    }
 }

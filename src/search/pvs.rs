@@ -3,9 +3,14 @@ use crate::{board::Board, evaluation, transposition::{TranspositionTable, EntryT
 use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::see_threshold};
 
 const MATE_VALUE: i32 = 99999;
-const FUTILITY_MARGIN: [i32; 8] = [0, 300, 500, 900, 1200, 1500, 1800, 2100];
-const LMR_MIN_DEPTH: u8 = 3;
-const LMR_MIN_MOVES: usize = 4;
+const FUTILITY_MARGIN: [i32; 8] = [0, 200, 350, 600, 900, 1200, 1500, 1800];
+const REVERSE_FUTILITY_MARGIN: [i32; 8] = [0, 120, 240, 360, 480, 600, 720, 840];
+const LMR_MIN_DEPTH: u8 = 2;
+const LMR_MIN_MOVES: usize = 3;
+const PROBCUT_DEPTH: u8 = 5;
+const PROBCUT_MARGIN: i32 = 200;
+const SINGULAR_EXTENSION_DEPTH: u8 = 6;
+const ASPIRATION_WINDOW: i32 = 25;
 
 /// Principal Variation Search com melhorias para táticas
 pub fn pvs_search(
@@ -91,25 +96,55 @@ fn pvs_search_internal(
     let in_check = board.is_king_in_check(board.to_move);
     let static_eval = if !in_check { evaluation::evaluate(board) } else { -MATE_VALUE / 2 };
 
-    // Razoring
-    if !is_pv_node && !in_check && depth <= 3 {
-        let razor_margin = 300 + 100 * depth as i32;
-        if static_eval + razor_margin < alpha {
-            let razor_score = quiescence_search(board, alpha, beta, tt, context);
-            if razor_score <= alpha {
-                return razor_score;
+    // Reverse Futility Pruning (Static Null Move Pruning)
+    if !is_pv_node && !in_check && depth <= 7 && static_eval != -MATE_VALUE / 2 {
+        let rfp_margin = REVERSE_FUTILITY_MARGIN[depth as usize];
+        if static_eval - rfp_margin >= beta {
+            return static_eval - rfp_margin;
+        }
+    }
+
+    // Razoring (melhorada)
+    if !is_pv_node && !in_check && depth <= 3 && static_eval + FUTILITY_MARGIN[depth as usize] < alpha {
+        let razor_score = quiescence_search(board, alpha, beta, tt, context);
+        if razor_score <= alpha {
+            return razor_score;
+        }
+    }
+
+    // ProbCut
+    if !is_pv_node && depth >= PROBCUT_DEPTH && static_eval >= beta {
+        let probcut_beta = beta + PROBCUT_MARGIN;
+        let probcut_moves = board.generate_legal_moves().into_iter()
+            .filter(|mv| board.is_capture(*mv) || gives_check_fast(board, *mv))
+            .take(3)
+            .collect::<Vec<_>>();
+            
+        for mv in probcut_moves {
+            let mut temp_board = *board;
+            temp_board.make_move(mv);
+            let probcut_score = -pvs_search_internal(
+                &temp_board, depth - 4, -probcut_beta, -probcut_beta + 1, 
+                tt, context, start_time, max_time_ms, false, ply + 1
+            );
+            if probcut_score >= probcut_beta {
+                return probcut_score;
             }
         }
     }
 
-    // Null Move Pruning
-    if depth >= 2 && !is_pv_node && !in_check && static_eval >= beta {
+    // Null Move Pruning (melhorada)
+    if depth >= 2 && !is_pv_node && !in_check && static_eval >= beta && has_non_pawn_material(board) {
         let mut null_board = *board;
         null_board.to_move = !null_board.to_move;
         null_board.en_passant_target = None;
+        null_board.halfmove_clock += 1;
 
-        let eval_reduction = ((static_eval - beta) / 200).min(3) as u8;
-        let r = 3 + depth / 6 + eval_reduction;
+        // Redução adaptativa baseada na profundidade e margem de avaliação
+        let eval_margin = static_eval - beta;
+        let base_reduction = if depth <= 6 { 3 } else { 4 };
+        let eval_reduction = (eval_margin / 200).min(2) as u8;
+        let r = base_reduction + eval_reduction;
         let null_depth = depth.saturating_sub(r);
 
         let null_score = -pvs_search_internal(
@@ -117,10 +152,11 @@ fn pvs_search_internal(
         );
 
         if null_score >= beta {
-            if depth < 12 || null_score >= MATE_VALUE - 100 {
+            // Verificação apenas em profundidades mais altas
+            if depth < 14 || null_score >= MATE_VALUE - 100 {
                 return beta;
             }
-            let verify_depth = depth.saturating_sub(r + 1);
+            let verify_depth = depth.saturating_sub(r + 2);
             let verify_score = pvs_search_internal(
                 board, verify_depth, beta - 1, beta, tt, context, start_time, max_time_ms, false, ply
             );
@@ -176,16 +212,25 @@ fn pvs_search_internal(
         let gives_check = temp_board.is_king_in_check(!board.to_move);
         let is_capture = board.is_capture(*mv);
 
-        // Extended Futility Pruning
-        if depth <= 6 && !is_pv_node && !in_check && !gives_check {
+        // Extended Futility Pruning (melhorada)
+        if depth <= 6 && !is_pv_node && !in_check && !gives_check && moves_searched > 0 {
             let futility_value = static_eval + FUTILITY_MARGIN[depth as usize];
-            if futility_value <= alpha {
-                if !is_capture && !mv.promotion.is_some() {
+            if futility_value <= alpha && !is_capture && mv.promotion.is_none() {
+                // Exceção para movimentos que podem melhorar a posição significativamente
+                if !is_killer_or_counter_move(*mv, context, depth) {
                     moves_searched += 1;
                     context.pop_move();
                     continue;
                 }
             }
+        }
+
+        // Late Move Count Pruning
+        if depth <= 8 && !is_pv_node && !in_check && !gives_check && !is_capture 
+            && mv.promotion.is_none() && moves_searched >= late_move_count_threshold(depth) {
+            moves_searched += 1;
+            context.pop_move();
+            continue;
         }
 
         // SEE Pruning
@@ -213,26 +258,37 @@ fn pvs_search_internal(
             if depth >= LMR_MIN_DEPTH && moves_searched >= LMR_MIN_MOVES && !is_pv_node
                 && !is_capture && !gives_check && !in_check && extension == 0 {
 
-                let base_reduction = if depth <= 6 {
-                    if moves_searched < 8 { 1 } else { 2 }
-                } else if depth <= 12 {
-                    if moves_searched < 8 { 2 } else if moves_searched < 16 { 3 } else { 4 }
-                } else {
-                    if moves_searched < 8 { 3 } else if moves_searched < 16 { 4 } else { 5 }
-                };
+                // Fórmula logarítmica mais sofisticada para LMR
+                let log_depth = (depth as f32).ln();
+                let log_moves = (moves_searched as f32).ln();
+                let base_reduction = (log_depth * log_moves / 2.5) as u8;
+                
+                reduction = base_reduction.max(1).min(depth.saturating_sub(1));
 
-                reduction = base_reduction;
-
+                // Ajustes baseados em heurísticas
                 if let Some(piece) = board.get_piece_on_square(mv.from) {
                     let history = context.get_history_score(*mv, piece);
-                    if history < -1000 {
-                        reduction += 1;
-                    } else if history > 2000 {
+                    
+                    // Reduz menos para movimentos com boa história
+                    if history > 1000 {
                         reduction = reduction.saturating_sub(1);
+                    } else if history < -1500 {
+                        reduction += 1;
                     }
                 }
-
-                reduction = reduction.min(depth.saturating_sub(2));
+                
+                // Reduz menos no nó PV
+                if is_pv_node {
+                    reduction = reduction.saturating_sub(1);
+                }
+                
+                // Reduz menos se a posição é tática
+                if is_tactical_position(board) {
+                    reduction = reduction.saturating_sub(1);
+                }
+                
+                // Limitações finais
+                reduction = reduction.min(depth.saturating_sub(1)).max(1);
             }
 
             let search_depth = depth.saturating_sub(1 + reduction) + extension;
@@ -285,6 +341,85 @@ fn is_recapture(board: &Board, mv: Move, context: &SearchContext) -> bool {
     } else {
         false
     }
+}
+
+/// Verifica se há material não-peão (necessário para null move)
+fn has_non_pawn_material(board: &Board) -> bool {
+    let our_pieces = if board.to_move == crate::types::Color::White { 
+        board.white_pieces 
+    } else { 
+        board.black_pieces 
+    };
+    
+    (our_pieces & (board.knights | board.bishops | board.rooks | board.queens)) != 0
+}
+
+/// Detecção rápida de check sem fazer o movimento
+fn gives_check_fast(board: &Board, mv: Move) -> bool {
+    // Implementação simplificada - pode ser melhorada
+    let mut temp_board = *board;
+    temp_board.make_move(mv);
+    temp_board.is_king_in_check(!board.to_move)
+}
+
+/// Verifica se movimento é killer ou counter-move
+fn is_killer_or_counter_move(mv: Move, context: &SearchContext, depth: u8) -> bool {
+    context.is_killer(mv, depth) || {
+        if let Some(last_move) = context.get_last_move() {
+            if let Some(counter) = context.get_counter_move(last_move) {
+                counter == mv
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+}
+
+/// Threshold para Late Move Count Pruning
+fn late_move_count_threshold(depth: u8) -> usize {
+    match depth {
+        1 => 6,
+        2 => 8,
+        3 => 12,
+        4 => 16,
+        5 => 20,
+        6 => 24,
+        7 => 28,
+        _ => 32,
+    }
+}
+
+/// Detecta posições táticas que precisam de busca mais profunda
+fn is_tactical_position(board: &Board) -> bool {
+    // Verifica se há peças penduradas ou em xeque
+    let in_check = board.is_king_in_check(board.to_move);
+    if in_check {
+        return true;
+    }
+    
+    // Conta peças atacadas
+    let our_pieces = if board.to_move == crate::types::Color::White { 
+        board.white_pieces 
+    } else { 
+        board.black_pieces 
+    };
+    
+    let valuable_pieces = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
+    let mut attacked_count = 0;
+    let mut bb = valuable_pieces;
+    
+    while bb != 0 && attacked_count < 3 {
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+        
+        if board.is_square_attacked_by(sq, !board.to_move) {
+            attacked_count += 1;
+        }
+    }
+    
+    attacked_count >= 2
 }
 
 /// Versão simplificada para análise

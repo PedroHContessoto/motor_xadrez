@@ -24,17 +24,23 @@ pub fn order_moves(
 
         // 1. TT Move (prioridade máxima)
         if Some(mv) == tt_move {
-            score = 1_000_000; // Aumentar prioridade
+            score = 2_000_000; // Prioridade absoluta
         }
-        // 2. Capturas (ordenadas por SEE + MVV-LVA)
+        // 2. Capturas (ordenadas por SEE + MVV-LVA otimizada)
         else if board.is_capture(mv) {
             let see_value = see(board, mv);
+            let captured_piece_value = get_captured_piece_value(board, mv);
+            let attacking_piece_value = get_attacking_piece_value(board, mv);
+            
             if see_value > 0 {
-                score = 900_000 + see_value;
+                // Captura boa: SEE + MVV-LVA
+                score = 1_800_000 + see_value + (captured_piece_value * 10) - attacking_piece_value;
             } else if see_value == 0 {
-                score = 800_000;
+                // Troca igual
+                score = 1_600_000 + captured_piece_value;
             } else {
-                score = 100_000 + see_value; // Ainda considera capturas ruins
+                // Captura ruim mas ainda considera
+                score = 400_000 + see_value + captured_piece_value;
             }
         }
         // 3. Castling (desenvolvimento seguro)
@@ -55,17 +61,22 @@ pub fn order_moves(
         else if is_defensive_move(board, mv) {
             score = 20_000;
         }
-        // 6. Killers (moves que causaram cutoffs)
+        // 6. Killers (moves que causaram cutoffs) - ordenação por idade
         else if context.is_killer(mv, depth) {
-            score = 700_000; // Aumentar importância
+            let killer_age = context.get_killer_age(mv, depth);
+            score = 1_400_000 - (killer_age * 10_000); // Killers mais recentes primeiro
         }
         // 7. Counter-moves (refutam último movimento inimigo)
         else if is_counter_move(mv, context) {
-            score = 600_000;
+            score = 1_200_000;
         }
-        // 8. Checks (podem causar táticas)
+        // 8. Checks (podem causar táticas) - prioridade por tipo
         else if gives_check_heuristic(board, mv) {
-            score = 500_000;
+            if is_discovered_check(board, mv) {
+                score = 1_100_000; // Checks descobertos são perigosos
+            } else {
+                score = 1_000_000;
+            }
         }
         // 9. Avaliação inteligente de movimentos de rei
         else if board.get_piece_on_square(mv.from) == Some(PieceKind::King) {
@@ -107,23 +118,34 @@ pub fn order_moves(
                 }
             }
         }
-        // 10. Histórico (moves que foram bons antes)
+        // 10. Histórico e heurísticas posicionais
         else {
             if let Some(piece) = board.get_piece_on_square(mv.from) {
                 let history_score = context.get_history_score(mv, piece);
-                score = 300_000 + history_score.clamp(-50_000, 50_000);
+                let butterfly_score = context.get_butterfly_score(mv);
+                score = 500_000 + history_score.clamp(-100_000, 100_000) + butterfly_score;
             } else {
-                score = 300_000;
+                score = 500_000;
             }
 
-            // Bônus por desenvolvimento na abertura
+            // Bônus por desenvolvimento na abertura (melhorado)
             if is_development_move(board, mv) {
-                score += 5_000;
+                score += 50_000;
             }
 
-            // Bônus por controle de centro
+            // Bônus por controle de centro (melhorado)
             if controls_center(mv) {
-                score += 2_000;
+                score += 30_000;
+            }
+            
+            // Bônus para movimentos que melhoram a estrutura de peões
+            if improves_pawn_structure(board, mv) {
+                score += 20_000;
+            }
+            
+            // Penalização para movimentos que enfraquecem o rei
+            if weakens_king_safety(board, mv) {
+                score -= 40_000;
             }
         }
 
@@ -410,4 +432,179 @@ pub fn update_context_on_cutoff(
 /// Detecta se captura envolve promoção (captura + promoção)
 pub fn is_promotion_capture(board: &Board, mv: Move) -> bool {
     mv.promotion.is_some() && board.is_capture(mv)
+}
+
+/// Obtém valor da peça capturada para MVV-LVA
+fn get_captured_piece_value(board: &Board, mv: Move) -> i32 {
+    let target_bb = 1u64 << mv.to;
+    
+    if (target_bb & board.queens) != 0 { return 900; }
+    if (target_bb & board.rooks) != 0 { return 500; }
+    if (target_bb & board.bishops) != 0 { return 330; }
+    if (target_bb & board.knights) != 0 { return 320; }
+    if (target_bb & board.pawns) != 0 { return 100; }
+    
+    0 // En passant ou erro
+}
+
+/// Obtém valor da peça atacante para MVV-LVA
+fn get_attacking_piece_value(board: &Board, mv: Move) -> i32 {
+    let from_bb = 1u64 << mv.from;
+    
+    if (from_bb & board.queens) != 0 { return 900; }
+    if (from_bb & board.rooks) != 0 { return 500; }
+    if (from_bb & board.bishops) != 0 { return 330; }
+    if (from_bb & board.knights) != 0 { return 320; }
+    if (from_bb & board.pawns) != 0 { return 100; }
+    if (from_bb & board.kings) != 0 { return 20000; }
+    
+    0
+}
+
+/// Detecta checks descobertos (mais perigosos)
+fn is_discovered_check(board: &Board, mv: Move) -> bool {
+    let king_pos = if board.to_move == Color::White {
+        (board.kings & board.black_pieces).trailing_zeros() as u8
+    } else {
+        (board.kings & board.white_pieces).trailing_zeros() as u8
+    };
+    
+    // Verifica se mover a peça de 'from' expõe uma linha de ataque ao rei inimigo
+    let from_to_king = attacks_between(mv.from, king_pos);
+    let our_sliding_pieces = if board.to_move == Color::White {
+        (board.bishops | board.rooks | board.queens) & board.white_pieces
+    } else {
+        (board.bishops | board.rooks | board.queens) & board.black_pieces
+    };
+    
+    (from_to_king & our_sliding_pieces) != 0
+}
+
+/// Calcula bitboard de ataques entre duas casas (simplificado)
+fn attacks_between(from: u8, to: u8) -> u64 {
+    // Implementação simplificada - pode ser melhorada com magic bitboards
+    let from_rank = from / 8;
+    let from_file = from % 8;
+    let to_rank = to / 8;
+    let to_file = to % 8;
+    
+    // Mesma linha/coluna/diagonal
+    if from_rank == to_rank || from_file == to_file || 
+       (from_rank as i8 - to_rank as i8).abs() == (from_file as i8 - to_file as i8).abs() {
+        // Simplificação: retorna bitboard das casas intermediárias
+        let mut result = 0u64;
+        let rank_diff = (to_rank as i8 - from_rank as i8).signum();
+        let file_diff = (to_file as i8 - from_file as i8).signum();
+        
+        let mut current_rank = from_rank as i8 + rank_diff;
+        let mut current_file = from_file as i8 + file_diff;
+        
+        while current_rank != to_rank as i8 || current_file != to_file as i8 {
+            if current_rank >= 0 && current_rank < 8 && current_file >= 0 && current_file < 8 {
+                result |= 1u64 << (current_rank * 8 + current_file);
+            }
+            current_rank += rank_diff;
+            current_file += file_diff;
+        }
+        
+        result
+    } else {
+        0
+    }
+}
+
+/// Verifica se movimento melhora estrutura de peões
+fn improves_pawn_structure(board: &Board, mv: Move) -> bool {
+    let from_bb = 1u64 << mv.from;
+    
+    // Só para movimentos de peão
+    if (from_bb & board.pawns) == 0 {
+        return false;
+    }
+    
+    let to_file = mv.to % 8;
+    let our_pawns = board.pawns & if board.to_move == Color::White {
+        board.white_pieces
+    } else {
+        board.black_pieces
+    };
+    
+    // Heurísticas simples:
+    // 1. Avança peão central
+    if to_file >= 3 && to_file <= 4 {
+        return true;
+    }
+    
+    // 2. Conecta peões isolados
+    let left_file = if to_file > 0 { to_file - 1 } else { to_file };
+    let right_file = if to_file < 7 { to_file + 1 } else { to_file };
+    
+    let adjacent_files_mask = file_mask(left_file) | file_mask(right_file);
+    if (our_pawns & adjacent_files_mask) != 0 {
+        return true;
+    }
+    
+    false
+}
+
+/// Verifica se movimento enfraquece segurança do rei
+fn weakens_king_safety(board: &Board, mv: Move) -> bool {
+    let from_bb = 1u64 << mv.from;
+    let our_king = board.kings & if board.to_move == Color::White {
+        board.white_pieces
+    } else {
+        board.black_pieces
+    };
+    
+    if our_king == 0 {
+        return false;
+    }
+    
+    let king_pos = our_king.trailing_zeros() as u8;
+    let king_file = king_pos % 8;
+    let king_rank = king_pos / 8;
+    
+    // Verifica se está movendo peça defensiva próxima ao rei
+    let to_king_distance = distance(mv.from, king_pos);
+    
+    if to_king_distance <= 2 {
+        // Move peça defensiva para longe do rei
+        let after_king_distance = distance(mv.to, king_pos);
+        if after_king_distance > to_king_distance + 1 {
+            return true;
+        }
+        
+        // Remove defensor de peão na frente do rei
+        if board.to_move == Color::White && mv.from / 8 == king_rank + 1 {
+            let file_diff = (mv.from % 8) as i8 - king_file as i8;
+            if file_diff.abs() <= 1 {
+                return true;
+            }
+        } else if board.to_move == Color::Black && mv.from / 8 == king_rank - 1 {
+            let file_diff = (mv.from % 8) as i8 - king_file as i8;
+            if file_diff.abs() <= 1 {
+                return true;
+            }
+        }
+    }
+    
+    false
+}
+
+/// Calcula distância entre duas casas
+fn distance(sq1: u8, sq2: u8) -> u8 {
+    let rank1 = sq1 / 8;
+    let file1 = sq1 % 8;
+    let rank2 = sq2 / 8;
+    let file2 = sq2 % 8;
+    
+    let rank_diff = (rank1 as i8 - rank2 as i8).abs() as u8;
+    let file_diff = (file1 as i8 - file2 as i8).abs() as u8;
+    
+    rank_diff.max(file_diff)
+}
+
+/// Gera máscara de arquivo
+fn file_mask(file: u8) -> u64 {
+    0x0101010101010101u64 << file
 }
