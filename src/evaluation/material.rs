@@ -86,7 +86,7 @@ pub fn evaluate_material_and_pst(board: &Board, color: Color, game_phase: &GameP
 
     // Escolhe tabela do rei baseada na fase
     let king_table = match game_phase {
-        GamePhase::Endgame => &KING_TABLE_ENDGAME,
+        GamePhase::EarlyEndgame | GamePhase::Endgame | GamePhase::PureEndgame => &KING_TABLE_ENDGAME,
         _ => &KING_TABLE_MIDGAME,
     };
 
@@ -122,7 +122,10 @@ fn evaluate_center_control(board: &Board, color: Color, game_phase: &GamePhase) 
     // Bônus ajustado por fase do jogo e situação tática
     let center_multiplier = match game_phase {
         GamePhase::Opening => if board.has_many_attacks() { 1.0 } else { 1.2 }, // Era 1.5, reduzido se tático
-        _ => 0.8, // Reduzido de 1.0 para 0.8
+        GamePhase::EarlyMiddlegame => 1.1,
+        GamePhase::Middlegame => 1.0,
+        GamePhase::LateMiddlegame => 0.9,
+        GamePhase::EarlyEndgame | GamePhase::Endgame | GamePhase::PureEndgame => 0.8, // Reduzido de 1.0 para 0.8
     };
 
     // Peões no centro
@@ -159,8 +162,12 @@ fn evaluate_knights_enhanced(board: &Board, mut knight_bb: Bitboard, color: Colo
         if is_outpost(sq as u8, color) && defended_by_own_pawn(board, sq as u8, color) {
             let outpost_bonus = match game_phase {
                 GamePhase::Opening => 20,
+                GamePhase::EarlyMiddlegame => 25,
                 GamePhase::Middlegame => 30,
-                GamePhase::Endgame => 40, // Mais valioso no endgame
+                GamePhase::LateMiddlegame => 35,
+                GamePhase::EarlyEndgame => 38,
+                GamePhase::Endgame => 40,
+                GamePhase::PureEndgame => 45, // Mais valioso no endgame
             };
             score += outpost_bonus;
         }

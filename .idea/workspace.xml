@@ -11,7 +11,17 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="arrumando arrumando busca e inteligencia" />
+    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="arrumando arrumando busca e inteligencia">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/game_phase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/game_phase.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/material.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/material.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/king_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/king_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/queen_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/queen_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/rook_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/rook_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mod.rs" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />

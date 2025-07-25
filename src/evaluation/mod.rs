@@ -60,10 +60,12 @@ fn evaluate_color(board: &Board, color: Color, game_phase: &game_phase::GamePhas
         game_phase::GamePhase::Opening => {
             score += evaluate_development(board, color);
         },
-        game_phase::GamePhase::Endgame => {
+        game_phase::GamePhase::EarlyMiddlegame | game_phase::GamePhase::Middlegame | game_phase::GamePhase::LateMiddlegame => {
+            // Middlegame focus on tactics and piece coordination
+        },
+        game_phase::GamePhase::EarlyEndgame | game_phase::GamePhase::Endgame | game_phase::GamePhase::PureEndgame => {
             score += evaluate_king_activity(board, color);
         },
-        _ => {}
     }
 
     score

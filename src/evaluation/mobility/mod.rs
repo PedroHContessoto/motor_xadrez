@@ -115,8 +115,12 @@ impl MobilityContext {
         let phase_info = detect_game_phase_advanced(board);
         let phase = match phase_info.phase {
             super::game_phase::GamePhase::Opening => GamePhase::Opening,
-            super::game_phase::GamePhase::Middlegame => GamePhase::MiddleGame,
-            super::game_phase::GamePhase::Endgame => GamePhase::Endgame, // Trata como Endgame
+            super::game_phase::GamePhase::EarlyMiddlegame |
+            super::game_phase::GamePhase::Middlegame |
+            super::game_phase::GamePhase::LateMiddlegame => GamePhase::MiddleGame,
+            super::game_phase::GamePhase::EarlyEndgame |
+            super::game_phase::GamePhase::Endgame |
+            super::game_phase::GamePhase::PureEndgame => GamePhase::Endgame,
         };
 
         MobilityContext {
