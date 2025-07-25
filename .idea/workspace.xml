@@ -11,15 +11,7 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="arrumando arrumando busca e inteligencia">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/context.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/context.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/ordering.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/ordering.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/transposition.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/transposition.rs" afterDir="false" />
-    </list>
+    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="arrumando arrumando busca e inteligencia" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -143,7 +135,7 @@
       <workItem from="1752868283844" duration="54000" />
       <workItem from="1753141817653" duration="79000" />
       <workItem from="1753142126836" duration="44076000" />
-      <workItem from="1753456304505" duration="1658000" />
+      <workItem from="1753456304505" duration="1966000" />
     </task>
     <task id="LOCAL-00001" summary="add treino">
       <option name="closed" value="true" />
@@ -185,7 +177,15 @@
       <option name="project" value="LOCAL" />
       <updated>1753178191683</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="arrumando arrumando busca e inteligencia">
+      <option name="closed" value="true" />
+      <created>1753458169948</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1753458169948</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

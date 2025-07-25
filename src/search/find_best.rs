@@ -60,12 +60,12 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
         let adjusted_timeout = (base_timeout as f32 * tactical_time_multiplier) as u64;
         let final_timeout = adjusted_timeout.min(max_timeout);
         
-        // CRÍTICO: Depth limit muito mais conservador
+        // Depth limit aumentado para melhor jogo
         let max_safe_depth = match tactical_level {
-            3 => 8,   // Era 20 -> 8 (redução drástica)
-            2 => 7,   // Era 16 -> 7
-            1 => 6,   // Era 14 -> 6
-            _ => 6    // Era 12 -> 6
+            3 => 12,  // Posições táticas complexas
+            2 => 10,  // Posições moderadamente táticas
+            1 => 9,   // Posições simples
+            _ => 8    // Posições normais
         };
         
         if depth > max_safe_depth {
@@ -73,14 +73,14 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
             break;
         }
         
-        if depth > 4 && elapsed > final_timeout {
+        if depth > 8 && elapsed > final_timeout {
             println!("DEBUG: Time limit reached at depth {}, elapsed: {}ms, limit: {}ms", 
                      depth, elapsed, final_timeout);
             break;
         }
 
         // Hard timeout absoluto
-        let absolute_limit = max_time_ms / 2;  // Muito conservador: 1/2 do tempo (era 1/4)
+        let absolute_limit = (max_time_ms * 3) / 4;  // Menos conservador: 3/4 do tempo
         if elapsed > absolute_limit {
             println!("DEBUG: HARD TIMEOUT at {}ms (limit: {}ms)", elapsed, absolute_limit);
             break;
