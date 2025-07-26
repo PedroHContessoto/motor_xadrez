@@ -5,8 +5,10 @@ use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves,
 const MATE_VALUE: i32 = 99999;
 const FUTILITY_MARGIN: [i32; 8] = [0, 200, 350, 600, 900, 1200, 1500, 1800];
 const REVERSE_FUTILITY_MARGIN: [i32; 8] = [0, 120, 240, 360, 480, 600, 720, 840];
+// === LMR AGRESSIVO E ADAPTATIVO ===
 const LMR_MIN_DEPTH: u8 = 2;
-const LMR_MIN_MOVES: usize = 3;
+const LMR_MIN_MOVES: usize = 2; // Mais agressivo - começa em 2 movimentos
+const LMR_BASE_REDUCTION: [[u8; 64]; 64] = calculate_lmr_table();
 const PROBCUT_DEPTH: u8 = 5;
 const PROBCUT_MARGIN: i32 = 200;
 const SINGULAR_EXTENSION_DEPTH: u8 = 6;
@@ -254,41 +256,63 @@ fn pvs_search_internal(
             let first_depth = depth.saturating_sub(1) + extension;
             score = -pvs_search_internal(&temp_board, first_depth, -beta, -alpha, tt, context, start_time, max_time_ms, is_pv_node, ply + 1);
         } else {
+            // === LMR AGRESSIVO BASEADO EM TABELA PRÉ-CALCULADA ===
             let mut reduction: u8 = 0;
             if depth >= LMR_MIN_DEPTH && moves_searched >= LMR_MIN_MOVES && !is_pv_node
                 && !is_capture && !gives_check && !in_check && extension == 0 {
 
-                // Fórmula logarítmica mais sofisticada para LMR
-                let log_depth = (depth as f32).ln();
-                let log_moves = (moves_searched as f32).ln();
-                let base_reduction = (log_depth * log_moves / 2.5) as u8;
+                // Base reduction da tabela pré-calculada (muito mais rápido)
+                let depth_idx = (depth as usize).min(63);
+                let moves_idx = moves_searched.min(63);
+                let mut base_reduction = LMR_BASE_REDUCTION[depth_idx][moves_idx];
                 
-                reduction = base_reduction.max(1).min(depth.saturating_sub(1));
-
-                // Ajustes baseados em heurísticas
+                // === AJUSTES ADAPTATIVOS AVANÇADOS ===
+                
+                // 1. Histórico de movimentos (mais refinado)
                 if let Some(piece) = board.get_piece_on_square(mv.from) {
                     let history = context.get_history_score(*mv, piece);
                     
-                    // Reduz menos para movimentos com boa história
-                    if history > 1000 {
-                        reduction = reduction.saturating_sub(1);
-                    } else if history < -1500 {
-                        reduction += 1;
+                    if history > 2000 {
+                        base_reduction = base_reduction.saturating_sub(2); // Movimento muito bom
+                    } else if history > 500 {
+                        base_reduction = base_reduction.saturating_sub(1); // Movimento bom
+                    } else if history < -2000 {
+                        base_reduction += 2; // Movimento muito ruim
+                    } else if history < -500 {
+                        base_reduction += 1; // Movimento ruim
                     }
                 }
                 
-                // Reduz menos no nó PV
-                if is_pv_node {
-                    reduction = reduction.saturating_sub(1);
+                // 2. Redução baseada na complexidade posicional
+                let tactical_level = evaluate_tactical_complexity(board);
+                match tactical_level {
+                    3 => base_reduction = base_reduction.saturating_sub(2), // Posição muito tática
+                    2 => base_reduction = base_reduction.saturating_sub(1), // Posição tática
+                    0 => base_reduction += 1, // Posição muito calma
+                    _ => {} // Posição normal
                 }
                 
-                // Reduz menos se a posição é tática
-                if is_tactical_position(board) {
-                    reduction = reduction.saturating_sub(1);
+                // 3. Ajuste para peças específicas (cavalos e bispos em posições táticas)
+                if let Some(piece) = board.get_piece_on_square(mv.from) {
+                    match piece.kind {
+                        crate::types::PieceKind::Knight | crate::types::PieceKind::Bishop => {
+                            if tactical_level >= 2 {
+                                base_reduction = base_reduction.saturating_sub(1);
+                            }
+                        },
+                        _ => {}
+                    }
                 }
                 
-                // Limitações finais
-                reduction = reduction.min(depth.saturating_sub(1)).max(1);
+                // 4. Redução extra para movimentos muito tardios
+                if moves_searched >= 16 {
+                    base_reduction += 1;
+                } else if moves_searched >= 32 {
+                    base_reduction += 2;
+                }
+                
+                // 5. Limitações finais com mínimo mais agressivo
+                reduction = base_reduction.clamp(1, depth.saturating_sub(1).max(1));
             }
 
             let search_depth = depth.saturating_sub(1 + reduction) + extension;
