@@ -9,6 +9,7 @@ pub mod pawn_structure;
 pub mod game_phase;
 mod utils;
 pub mod endgame_patterns;
+pub mod meta_evaluation;
 
 use crate::{board::Board, types::Color};
 
@@ -54,6 +55,9 @@ fn evaluate_color(board: &Board, color: Color, game_phase: &game_phase::GamePhas
 
     // NOVO: Avaliação de ameaças (peças penduradas, ataques) - CAP: ±80
     score += threats::evaluate_threats(board, color).clamp(-80, 80);
+
+    // META-EVALUATION: Análise avançada de vulnerabilidades - CAP: ±60
+    score += meta_evaluation::meta_evaluate_position(board, color).clamp(-60, 60);
 
     // Avaliações específicas por fase
     match game_phase {

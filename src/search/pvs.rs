@@ -174,27 +174,17 @@ fn pvs_search_internal(
     let mut moves_searched = 0;
     let mut tried_moves = Vec::with_capacity(ordered_moves.len());
 
-    // Multi-cut pruning
-    if !is_pv_node && depth >= 8 && moves_searched >= 3 {
-        let mut cut_count = 0;
-        const MC_MOVES_TO_TRY: usize = 6;
-
-        for (i, mv) in ordered_moves.iter().take(MC_MOVES_TO_TRY).enumerate() {
-            if i >= moves_searched { break; }
-
-            let mut temp_board = *board;
-            let _undo_info = temp_board.make_move_fast(*mv);
-
-            let score = -pvs_search_internal(
-                &temp_board, depth - 3, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false, ply + 1
-            );
-
-            if score > alpha {
-                cut_count += 1;
-                if cut_count >= 3 {
-                    return beta;
-                }
-            }
+    // === MULTI-CUT PRUNING AVANÇADO ===
+    // Detecta posições onde múltiplos movimentos causam beta cutoff
+    let mut multicut_candidates = Vec::new();
+    if should_try_multicut(depth, is_pv_node, in_check, &ordered_moves) {
+        multicut_candidates = evaluate_multicut_pruning(
+            board, &ordered_moves, depth, alpha, beta, tt, context, start_time, max_time_ms, ply
+        );
+        
+        if multicut_candidates.len() >= 3 {
+            // Múltiplos movimentos causam cutoff - posição é muito boa
+            return beta;
         }
     }
 
@@ -876,7 +866,6 @@ fn is_endgame_position(board: &Board) -> bool {
 const SINGULAR_MARGIN: i32 = 64;           // Margem para considerar movimento singular
 const SINGULAR_SEARCH_DEPTH_REDUCTION: u8 = 3; // Redução na busca de verificação
 const SINGULAR_MAX_EXTENSION: u8 = 1;      // Extensão máxima
-const MULTICUT_MARGIN: i32 = 128;          // Margem para detecção de multi-cut
 const MULTICUT_DEPTH: u8 = 8;              // Profundidade mínima para multi-cut
 
 /// Avalia se movimento merece extensão singular
@@ -1065,4 +1054,358 @@ fn get_piece_value_simple(piece: crate::types::PieceKind) -> i32 {
         crate::types::PieceKind::Queen => 9,
         crate::types::PieceKind::King => 100,
     }
+}
+
+// ============================================================================
+// MULTI-CUT PRUNING - PODA QUANDO MÚLTIPLOS MOVIMENTOS SÃO BONS
+// ============================================================================
+
+/// Constantes para Multi-cut Pruning
+const MULTICUT_MIN_DEPTH: u8 = 6;          // Profundidade mínima para tentar multi-cut
+const MULTICUT_MIN_MOVES: usize = 8;       // Número mínimo de movimentos para justificar
+const MULTICUT_SEARCH_DEPTH: u8 = 3;       // Redução na busca de verificação
+const MULTICUT_CUTOFF_THRESHOLD: usize = 3; // Número de cutoffs para confirmar multi-cut
+const MULTICUT_MAX_MOVES_TEST: usize = 8;   // Máximo de movimentos para testar
+const MULTICUT_MARGIN: i32 = 100;          // Margem adicional para ser mais seletivo
+
+/// Estrutura para rastrear resultado de multi-cut
+#[derive(Debug, Clone)]
+struct MulticutResult {
+    cutoff_moves: Vec<Move>,    // Movimentos que causaram cutoff
+    best_score: i32,            // Melhor score encontrado
+    total_tested: usize,        // Total de movimentos testados
+}
+
+impl MulticutResult {
+    fn new() -> Self {
+        MulticutResult {
+            cutoff_moves: Vec::new(),
+            best_score: -50000,
+            total_tested: 0,
+        }
+    }
+    
+    fn is_multicut(&self) -> bool {
+        self.cutoff_moves.len() >= MULTICUT_CUTOFF_THRESHOLD
+    }
+}
+
+/// Verifica se devemos tentar multi-cut pruning
+fn should_try_multicut(depth: u8, is_pv_node: bool, in_check: bool, moves: &[Move]) -> bool {
+    // Condições básicas para multi-cut
+    if depth < MULTICUT_MIN_DEPTH || is_pv_node || in_check {
+        return false;
+    }
+    
+    // Precisa ter movimentos suficientes para justificar o teste
+    if moves.len() < MULTICUT_MIN_MOVES {
+        return false;
+    }
+    
+    true
+}
+
+/// Avalia multi-cut pruning testando movimentos iniciais
+fn evaluate_multicut_pruning(
+    board: &Board,
+    moves: &[Move],
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> Vec<Move> {
+    let mut result = MulticutResult::new();
+    let search_depth = depth.saturating_sub(MULTICUT_SEARCH_DEPTH);
+    let adjusted_beta = beta + MULTICUT_MARGIN; // Mais seletivo
+    
+    // Testa apenas os primeiros movimentos (mais prováveis de serem bons)
+    let moves_to_test = moves.len().min(MULTICUT_MAX_MOVES_TEST);
+    
+    for &mv in moves.iter().take(moves_to_test) {
+        // Verifica timeout - multi-cut não deve consumir muito tempo
+        if start_time.elapsed().as_millis() as u64 > max_time_ms / 3 {
+            break;
+        }
+        
+        if context.should_stop {
+            break;
+        }
+        
+        let mut temp_board = *board;
+        let _undo_info = temp_board.make_move_fast(mv);
+        
+        context.push_move(mv);
+        result.total_tested += 1;
+        
+        // Busca com janela zero para teste rápido
+        let score = -pvs_search_internal(
+            &temp_board, 
+            search_depth, 
+            -adjusted_beta, 
+            -adjusted_beta + 1, 
+            tt, 
+            context, 
+            start_time, 
+            max_time_ms, 
+            false, 
+            ply + 1
+        );
+        
+        context.pop_move();
+        
+        result.best_score = result.best_score.max(score);
+        
+        // Se movimento causa cutoff, adiciona à lista
+        if score >= adjusted_beta {
+            result.cutoff_moves.push(mv);
+            
+            // Se já temos cutoffs suficientes, podemos parar
+            if result.is_multicut() {
+                break;
+            }
+        }
+        
+        // Se encontramos poucos cutoffs após testar vários movimentos, não vale a pena continuar
+        if result.total_tested >= 6 && result.cutoff_moves.len() < 2 {
+            break;
+        }
+    }
+    
+    result.cutoff_moves
+}
+
+/// Multi-cut pruning aprimorado com análise de padrões
+fn evaluate_advanced_multicut(
+    board: &Board,
+    moves: &[Move],
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> MulticutAdvancedResult {
+    let mut result = MulticutAdvancedResult::new();
+    
+    // Análise em duas fases para melhor precisão
+    let phase1_moves = moves.len().min(4);
+    let phase2_moves = moves.len().min(8);
+    
+    // Fase 1: Teste rápido com redução maior
+    for &mv in moves.iter().take(phase1_moves) {
+        if test_multicut_move_phase1(board, mv, depth, beta, tt, context, start_time, max_time_ms, ply) {
+            result.phase1_cutoffs.push(mv);
+        }
+    }
+    
+    // Se Fase 1 não encontrou cutoffs suficientes, não continua
+    if result.phase1_cutoffs.len() < 2 {
+        return result;
+    }
+    
+    // Fase 2: Teste mais preciso com redução menor
+    for &mv in moves.iter().take(phase2_moves) {
+        if test_multicut_move_phase2(board, mv, depth, alpha, beta, tt, context, start_time, max_time_ms, ply) {
+            result.phase2_cutoffs.push(mv);
+        }
+        
+        // Para se já confirmamos multi-cut
+        if result.phase2_cutoffs.len() >= MULTICUT_CUTOFF_THRESHOLD {
+            result.confirmed = true;
+            break;
+        }
+    }
+    
+    result
+}
+
+#[derive(Debug)]
+struct MulticutAdvancedResult {
+    phase1_cutoffs: Vec<Move>,
+    phase2_cutoffs: Vec<Move>,
+    confirmed: bool,
+}
+
+impl MulticutAdvancedResult {
+    fn new() -> Self {
+        MulticutAdvancedResult {
+            phase1_cutoffs: Vec::new(),
+            phase2_cutoffs: Vec::new(),
+            confirmed: false,
+        }
+    }
+}
+
+/// Teste de multi-cut Fase 1 (redução maior, mais rápido)
+fn test_multicut_move_phase1(
+    board: &Board,
+    mv: Move,
+    depth: u8,
+    beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> bool {
+    let mut temp_board = *board;
+    let _undo_info = temp_board.make_move_fast(mv);
+    
+    context.push_move(mv);
+    
+    let search_depth = depth.saturating_sub(4); // Redução maior
+    let test_beta = beta + 50; // Margem menor para fase 1
+    
+    let score = -pvs_search_internal(
+        &temp_board, 
+        search_depth, 
+        -test_beta, 
+        -test_beta + 1, 
+        tt, 
+        context, 
+        start_time, 
+        max_time_ms, 
+        false, 
+        ply + 1
+    );
+    
+    context.pop_move();
+    
+    score >= test_beta
+}
+
+/// Teste de multi-cut Fase 2 (redução menor, mais preciso)
+fn test_multicut_move_phase2(
+    board: &Board,
+    mv: Move,
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> bool {
+    let mut temp_board = *board;
+    let _undo_info = temp_board.make_move_fast(mv);
+    
+    context.push_move(mv);
+    
+    let search_depth = depth.saturating_sub(MULTICUT_SEARCH_DEPTH); // Redução padrão
+    let test_beta = beta + MULTICUT_MARGIN;
+    
+    let score = -pvs_search_internal(
+        &temp_board, 
+        search_depth, 
+        -test_beta, 
+        -alpha - 1, 
+        tt, 
+        context, 
+        start_time, 
+        max_time_ms, 
+        false, 
+        ply + 1
+    );
+    
+    context.pop_move();
+    
+    score >= test_beta
+}
+
+/// Multi-cut adaptativo baseado na posição
+fn evaluate_adaptive_multicut(
+    board: &Board,
+    moves: &[Move],
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    static_eval: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> bool {
+    // Ajusta parâmetros baseado na avaliação estática
+    let eval_margin = static_eval - beta;
+    
+    let (test_depth, test_moves, cutoff_threshold) = if eval_margin > 200 {
+        // Posição muito boa - pode ser mais agressivo
+        (depth.saturating_sub(2), 6, 2)
+    } else if eval_margin > 100 {
+        // Posição boa - parâmetros padrão
+        (depth.saturating_sub(3), 8, 3)
+    } else {
+        // Posição marginal - mais conservativo
+        (depth.saturating_sub(4), 10, 4)
+    };
+    
+    let mut cutoffs = 0;
+    let test_beta = beta + (eval_margin / 4); // Ajusta margem baseado na posição
+    
+    for &mv in moves.iter().take(test_moves) {
+        if start_time.elapsed().as_millis() as u64 > max_time_ms / 4 {
+            break;
+        }
+        
+        let mut temp_board = *board;
+        let _undo_info = temp_board.make_move_fast(mv);
+        
+        context.push_move(mv);
+        
+        let score = -pvs_search_internal(
+            &temp_board, 
+            test_depth, 
+            -test_beta, 
+            -test_beta + 1, 
+            tt, 
+            context, 
+            start_time, 
+            max_time_ms, 
+            false, 
+            ply + 1
+        );
+        
+        context.pop_move();
+        
+        if score >= test_beta {
+            cutoffs += 1;
+            if cutoffs >= cutoff_threshold {
+                return true; // Multi-cut confirmado
+            }
+        }
+    }
+    
+    false
+}
+
+/// Análise de padrões para multi-cut (detecta tipos de posição favoráveis)
+fn analyze_multicut_position_patterns(board: &Board, static_eval: i32, depth: u8) -> MulticutPositionType {
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    let material_advantage = static_eval.abs();
+    
+    if material_advantage > 300 && total_pieces <= 16 {
+        MulticutPositionType::WinningEndgame
+    } else if material_advantage > 200 && depth >= 10 {
+        MulticutPositionType::DominantPosition
+    } else if static_eval > 150 && total_pieces >= 20 {
+        MulticutPositionType::TacticalAdvantage
+    } else {
+        MulticutPositionType::Normal
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum MulticutPositionType {
+    WinningEndgame,     // Endgame vencedor - multi-cut muito provável
+    DominantPosition,   // Posição dominante - multi-cut provável
+    TacticalAdvantage,  // Vantagem tática - multi-cut possível
+    Normal,             // Posição normal - multi-cut improvável
 }
