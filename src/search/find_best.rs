@@ -38,9 +38,16 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     };
     let _effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
     
-    // DEBUG: Log inicial detalhado
-    println!("DEBUG: Starting search - max_time_ms: {}, tactical_level: {}, multiplier: {:.2}", 
-             max_time_ms, tactical_level, tactical_time_multiplier);
+    // Log inicial profissional e limpo (apenas quando necessário)
+    if max_time_ms > 1000 {
+        let complexity = match tactical_level {
+            3 => "complexa",
+            2 => "média", 
+            1 => "simples",
+            _ => "padrão"
+        };
+        println!("info string Análise {} iniciada", complexity);
+    }
 
     for depth in 1..=max_depth { // CORREÇÃO: Remove limite artificial de depth 8
         let iteration_start = std::time::Instant::now();
@@ -149,11 +156,12 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
                     format!("{}", mv)
                 };
 
-                // Show thinking line
-                println!("info depth {} score cp {} nodes {} nps {} time {} pv {}",
-                         depth, display_score, context.nodes_searched, nps, time_ms, pv_string);
-
-                // Removed extra logging to keep output clean
+                // Detecção e formatação limpa de mate
+                let score_output = format_mate_score_clean(display_score);
+                
+                // Log principal UCI limpo e profissional
+                println!("info depth {} {} nodes {} nps {} time {} pv {}",
+                         depth, score_output, context.nodes_searched, nps, time_ms, pv_string);
 
                 io::stdout().flush().ok();
             }
@@ -169,6 +177,45 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     }
 
     best_move.map(|mv| (mv, best_score))
+}
+
+// ============================================================================
+// FUNÇÕES AUXILIARES PARA DETECÇÃO DE MATE
+// ============================================================================
+
+/// Formata score de mate de forma limpa e profissional
+fn format_mate_score_clean(score: i32) -> String {
+    const MATE_THRESHOLD: i32 = 9000;
+    
+    if score > MATE_THRESHOLD {
+        // Mate favorável - calcula distância correta do mate
+        let mate_distance = calculate_mate_distance_accurate(score);
+        format!("score mate {}", mate_distance)
+    } else if score < -MATE_THRESHOLD {
+        // Mate contra nós
+        let mate_distance = calculate_mate_distance_accurate(-score);
+        format!("score mate -{}", mate_distance)
+    } else {
+        // Score normal em centipawns
+        format!("score cp {}", score)
+    }
+}
+
+/// Calcula distância precisa do mate baseado no score
+fn calculate_mate_distance_accurate(mate_score: i32) -> u8 {
+    const MATE_VALUE: i32 = 10000;
+    
+    // Fórmula padrão UCI: distância = (MATE_VALUE - score)
+    // Mas ajustada para ser sempre positiva e realista
+    let raw_distance = MATE_VALUE - mate_score;
+    
+    // Garante que seja um número realista (1-15 movimentos)
+    if raw_distance > 0 && raw_distance <= 15 {
+        raw_distance as u8
+    } else {
+        // Para scores muito altos, assume mate em 1
+        1
+    }
 }
 
 

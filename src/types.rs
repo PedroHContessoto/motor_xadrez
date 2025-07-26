@@ -55,6 +55,16 @@ pub struct Piece {
     pub color: Color,
 }
 
+impl Piece {
+    pub fn new(kind: PieceKind, color: Color) -> Self {
+        Piece { kind, color }
+    }
+    
+    pub fn piece_type(&self) -> PieceKind {
+        self.kind
+    }
+}
+
 // Struct para representar um lance no jogo.
 // Guarda a casa de origem e a de destino.
 #[derive(Debug, Clone, Copy, PartialEq)]
