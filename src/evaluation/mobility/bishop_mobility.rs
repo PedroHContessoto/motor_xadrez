@@ -1,6 +1,6 @@
 // Mobilidade e estratégia avançada de bispos
-use crate::types::{Color, Bitboard};
-use super::{MobilityContext, MobilityResult, GamePhase, utils::*};
+use crate::types::{Color, Bitboard, PieceKind};
+use super::{MobilityContext, MobilityResult, GamePhase, utils::*, xray_attacks::*};
 
 /// Pesos para diferentes aspectos da estratégia de bispos
 #[derive(Debug, Clone, Copy)]
@@ -58,7 +58,7 @@ impl BishopAnalysis {
     }
 }
 
-/// Avaliação avançada de mobilidade de bispos
+/// Avaliação avançada de mobilidade de bispos com X-ray attacks
 pub fn evaluate_bishop_mobility_advanced(context: &MobilityContext) -> i32 {
     let weights = BishopWeights::default();
     let phase_idx = match context.phase {
@@ -79,6 +79,31 @@ pub fn evaluate_bishop_mobility_advanced(context: &MobilityContext) -> i32 {
     score += analysis.color_complex_bonus * weights.color_complex[phase_idx];
     score += analysis.pin_threats * weights.pin_potential[phase_idx];
     score += analysis.long_range_influence * weights.diagonal_dominance[phase_idx];
+
+    // === NOVA FUNCIONALIDADE: X-RAY MOBILITY ===
+    let bishops = context.board.bishops & context.our_pieces;
+    let bishop_squares = get_set_bits(bishops);
+    
+    for &bishop_sq in &bishop_squares {
+        // Avalia X-ray mobility para este bispo
+        let base_mobility = MobilityResult {
+            raw_mobility: 0,
+            safe_mobility: 0,
+            strategic_value: 0,
+            tactical_threats: 0,
+            positional_bonus: 0,
+        };
+        
+        let enhanced_mobility = enhance_mobility_with_xray(
+            bishop_sq, 
+            PieceKind::Bishop, 
+            base_mobility, 
+            context
+        );
+        
+        // Adiciona valor X-ray ao score total
+        score += enhanced_mobility.tactical_threats + enhanced_mobility.positional_bonus;
+    }
 
     score
 }

@@ -10,6 +10,7 @@ pub mod rook_mobility;
 pub mod queen_mobility;
 pub mod king_mobility;
 pub mod coordination;
+pub mod xray_attacks;
 
 // Re-exports das estruturas principais
 pub use pawn_mobility::*;
@@ -19,6 +20,7 @@ pub use rook_mobility::*;
 pub use queen_mobility::*;
 pub use king_mobility::*;
 pub use coordination::*;
+pub use xray_attacks::*;
 
 /// Resultado da análise de mobilidade para uma peça
 #[derive(Debug, Clone, Copy)]
