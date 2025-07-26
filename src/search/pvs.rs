@@ -135,35 +135,18 @@ fn pvs_search_internal(
         }
     }
 
-    // Null Move Pruning (melhorada)
-    if depth >= 2 && !is_pv_node && !in_check && static_eval >= beta && has_non_pawn_material(board) {
-        let mut null_board = *board;
-        null_board.to_move = !null_board.to_move;
-        null_board.en_passant_target = None;
-        null_board.halfmove_clock += 1;
-
-        // Redução adaptativa baseada na profundidade e margem de avaliação
-        let eval_margin = static_eval - beta;
-        let base_reduction = if depth <= 6 { 3 } else { 4 };
-        let eval_reduction = (eval_margin / 200).min(2) as u8;
-        let r = base_reduction + eval_reduction;
-        let null_depth = depth.saturating_sub(r);
-
-        let null_score = -pvs_search_internal(
-            &null_board, null_depth, -beta, -beta + 1, tt, context, start_time, max_time_ms, false, ply + 1
+    // === NULL MOVE PRUNING AVANÇADO COM VERIFICAÇÃO ===
+    if should_try_null_move(board, depth, is_pv_node, in_check, static_eval, beta, ply, context) {
+        let null_move_result = perform_advanced_null_move_search(
+            board, depth, alpha, beta, static_eval, tt, context, start_time, max_time_ms, ply
         );
-
-        if null_score >= beta {
-            // Verificação apenas em profundidades mais altas
-            if depth < 14 || null_score >= MATE_VALUE - 100 {
-                return beta;
-            }
-            let verify_depth = depth.saturating_sub(r + 2);
-            let verify_score = pvs_search_internal(
-                board, verify_depth, beta - 1, beta, tt, context, start_time, max_time_ms, false, ply
-            );
-            if verify_score >= beta {
-                return beta;
+        
+        match null_move_result {
+            NullMoveResult::Cutoff(score) => return score,
+            NullMoveResult::Continue => {}, // Continua busca normal
+            NullMoveResult::ThreatDetected => {
+                // Threat detected - reduz menos os próximos movimentos
+                context.set_threat_detected(true);
             }
         }
     }
@@ -562,4 +545,309 @@ fn has_hanging_pieces_simple(board: &Board) -> bool {
         }
     }
     false
+}
+
+// ============================================================================
+// NULL MOVE PRUNING AVANÇADO COM VERIFICAÇÃO E THREAT DETECTION
+// ============================================================================
+
+/// Resultado do null move search avançado
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NullMoveResult {
+    Cutoff(i32),        // Beta cutoff - pode retornar
+    Continue,           // Continua busca normal
+    ThreatDetected,     // Threat detectada - ajusta busca
+}
+
+/// Configuração avançada para null move
+struct NullMoveConfig {
+    base_reduction: u8,
+    eval_reduction: u8,
+    verification_depth: u8,
+    threat_threshold: i32,
+    use_verification: bool,
+    use_double_null: bool,
+}
+
+/// Verifica se devemos tentar null move com critérios avançados
+fn should_try_null_move(
+    board: &Board,
+    depth: u8,
+    is_pv_node: bool,
+    in_check: bool,
+    static_eval: i32,
+    beta: i32,
+    ply: usize,
+    context: &SearchContext
+) -> bool {
+    // Condições básicas
+    if depth < 2 || is_pv_node || in_check || static_eval < beta {
+        return false;
+    }
+
+    // Não fazer null move se já fizemos um recentemente (double null move prevention)
+    if context.consecutive_null_moves() >= 1 {
+        return false;
+    }
+
+    // Verifica se temos material suficiente para null move
+    if !has_sufficient_material_for_null_move(board) {
+        return false;
+    }
+
+    // Não fazer null move em posições táticas críticas
+    if is_zugzwang_sensitive_position(board) {
+        return false;
+    }
+
+    // Verifica se está próximo ao mate (null move pode esconder mate threats)
+    if static_eval >= MATE_VALUE - 100 || static_eval <= -MATE_VALUE + 100 {
+        return false;
+    }
+
+    // Considera histórico de threats
+    if context.recent_threat_detected() && depth <= 4 {
+        return false;
+    }
+
+    true
+}
+
+/// Executa null move search avançado com verificação adaptativa
+fn perform_advanced_null_move_search(
+    board: &Board,
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    static_eval: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> NullMoveResult {
+    // Calcula configuração adaptativa
+    let config = calculate_null_move_config(board, depth, static_eval, beta);
+
+    // Prepara null move board
+    let mut null_board = *board;
+    null_board.to_move = !null_board.to_move;
+    null_board.en_passant_target = None;
+    null_board.halfmove_clock += 1;
+
+    // Atualiza contexto para null move
+    context.increment_null_moves();
+    
+    // Primeiro null move search
+    let null_depth = depth.saturating_sub(config.base_reduction + config.eval_reduction);
+    let null_score = -pvs_search_internal(
+        &null_board, null_depth, -beta, -beta + 1, tt, context, start_time, max_time_ms, false, ply + 1
+    );
+    
+    context.decrement_null_moves();
+
+    if null_score < beta {
+        return NullMoveResult::Continue;
+    }
+
+    // Beta cutoff detectado - agora vem a verificação avançada
+    
+    // 1. Verificação simples para profundidades baixas
+    if depth < 12 || !config.use_verification {
+        return NullMoveResult::Cutoff(beta);
+    }
+
+    // 2. Verificação para detectar threats e zugzwang
+    let verification_result = perform_null_move_verification(
+        board, &config, alpha, beta, null_score, tt, context, start_time, max_time_ms, ply
+    );
+
+    // 3. Double null move para posições críticas
+    if config.use_double_null && verification_result == NullMoveResult::Cutoff(beta) {
+        let double_null_result = perform_double_null_move(
+            &null_board, depth, beta, tt, context, start_time, max_time_ms, ply
+        );
+        
+        if double_null_result < beta {
+            return NullMoveResult::ThreatDetected;
+        }
+    }
+
+    verification_result
+}
+
+/// Calcula configuração adaptativa do null move baseada na posição
+fn calculate_null_move_config(board: &Board, depth: u8, static_eval: i32, beta: i32) -> NullMoveConfig {
+    let eval_margin = static_eval - beta;
+    
+    // Base reduction adaptativa
+    let base_reduction = if depth <= 6 {
+        3
+    } else if depth <= 12 {
+        4
+    } else {
+        4 + (depth - 12) / 6 // Redução maior para profundidades altas
+    };
+
+    // Eval reduction baseada na margem
+    let eval_reduction = ((eval_margin / 200).min(3).max(0)) as u8;
+
+    // Verification depth
+    let verification_depth = if depth >= 16 {
+        depth.saturating_sub(base_reduction + 3)
+    } else if depth >= 8 {
+        depth.saturating_sub(base_reduction + 2)
+    } else {
+        0
+    };
+
+    // Threat threshold adaptativo
+    let threat_threshold = if is_endgame_position(board) {
+        50  // Mais sensível em endgame
+    } else {
+        150 // Menos sensível em middlegame
+    };
+
+    NullMoveConfig {
+        base_reduction,
+        eval_reduction,
+        verification_depth,
+        threat_threshold,
+        use_verification: depth >= 8,
+        use_double_null: depth >= 14 && eval_margin >= 400,
+    }
+}
+
+/// Verificação avançada do null move para detectar threats
+fn perform_null_move_verification(
+    board: &Board,
+    config: &NullMoveConfig,
+    alpha: i32,
+    beta: i32,
+    null_score: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> NullMoveResult {
+    if config.verification_depth == 0 {
+        return NullMoveResult::Cutoff(beta);
+    }
+
+    // Busca de verificação com janela reduzida
+    let verify_score = pvs_search_internal(
+        board, config.verification_depth, beta - 1, beta, tt, context, start_time, max_time_ms, false, ply
+    );
+
+    if verify_score >= beta {
+        // Verificação confirma cutoff
+        return NullMoveResult::Cutoff(beta);
+    }
+
+    // Analisa diferença entre null move e verificação
+    let threat_margin = null_score - verify_score;
+    
+    if threat_margin >= config.threat_threshold {
+        // Threat significativa detectada
+        return NullMoveResult::ThreatDetected;
+    }
+
+    // Threat menor ou zugzwang detectado
+    NullMoveResult::Continue
+}
+
+/// Double null move para detectar threats ocultas
+fn perform_double_null_move(
+    null_board: &Board,
+    depth: u8,
+    beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> i32 {
+    let mut double_null_board = *null_board;
+    double_null_board.to_move = !double_null_board.to_move;
+    double_null_board.halfmove_clock += 1;
+
+    let double_null_depth = depth.saturating_sub(6);
+    
+    if double_null_depth <= 0 {
+        return beta + 1; // Assume no threat
+    }
+
+    context.increment_null_moves();
+    let score = -pvs_search_internal(
+        &double_null_board, double_null_depth, -beta, -beta + 1, 
+        tt, context, start_time, max_time_ms, false, ply + 2
+    );
+    context.decrement_null_moves();
+
+    score
+}
+
+/// Verifica se posição tem material suficiente para null move
+fn has_sufficient_material_for_null_move(board: &Board) -> bool {
+    let our_pieces = if board.to_move == crate::types::Color::White { 
+        board.white_pieces 
+    } else { 
+        board.black_pieces 
+    };
+    
+    let valuable_pieces = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
+    
+    // Precisa ter pelo menos uma peça valiosa além do rei
+    valuable_pieces != 0
+}
+
+/// Detecta posições sensíveis a zugzwang
+fn is_zugzwang_sensitive_position(board: &Board) -> bool {
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    
+    // Endgames com poucos peões são sensíveis a zugzwang
+    if total_pieces <= 10 {
+        let total_pawns = board.pawns.count_ones();
+        if total_pawns <= 4 {
+            return true;
+        }
+    }
+    
+    // Posições de rei + peão vs rei
+    if total_pieces <= 4 {
+        return true;
+    }
+    
+    // Verifica padrões específicos de zugzwang
+    detect_specific_zugzwang_patterns(board)
+}
+
+/// Detecta padrões específicos de zugzwang
+fn detect_specific_zugzwang_patterns(board: &Board) -> bool {
+    let our_color = board.to_move;
+    let our_pieces = if our_color == crate::types::Color::White { 
+        board.white_pieces 
+    } else { 
+        board.black_pieces 
+    };
+    
+    // Rei + bispo de cor errada + peão vs rei
+    let our_bishops = board.bishops & our_pieces;
+    let our_pawns = board.pawns & our_pieces;
+    
+    if our_bishops.count_ones() == 1 && our_pawns.count_ones() <= 2 {
+        // Verifica se é bispo de cor errada (implementação simplificada)
+        return true;
+    }
+    
+    false
+}
+
+/// Verifica se é posição de endgame
+fn is_endgame_position(board: &Board) -> bool {
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    let major_pieces = (board.queens | board.rooks).count_ones();
+    
+    total_pieces <= 12 || major_pieces <= 2
 }

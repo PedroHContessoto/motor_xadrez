@@ -22,6 +22,10 @@ pub struct SearchContext {
     pub current_depth: u8,
     pub current_move_number: usize,
     pub total_moves_at_depth: usize,
+    // Null move tracking para advanced null move pruning
+    null_move_stack: Vec<bool>, // Stack de null moves
+    threat_detected_recently: bool, // Threat detection flag
+    threat_detection_ply: usize, // Ply onde threat foi detectada
 }
 
 impl SearchContext {
@@ -39,6 +43,9 @@ impl SearchContext {
             current_depth: 0,
             current_move_number: 0,
             total_moves_at_depth: 0,
+            null_move_stack: Vec::with_capacity(64),
+            threat_detected_recently: false,
+            threat_detection_ply: 0,
         }
     }
 
@@ -247,6 +254,55 @@ impl SearchContext {
         } else {
             0
         }
+    }
+
+    // ============================================================================
+    // NULL MOVE E THREAT DETECTION SUPPORT
+    // ============================================================================
+
+    /// Incrementa contador de null moves consecutivos
+    pub fn increment_null_moves(&mut self) {
+        self.null_move_stack.push(true);
+    }
+
+    /// Decrementa contador de null moves
+    pub fn decrement_null_moves(&mut self) {
+        self.null_move_stack.pop();
+    }
+
+    /// Retorna número de null moves consecutivos
+    pub fn consecutive_null_moves(&self) -> usize {
+        self.null_move_stack.len()
+    }
+
+    /// Marca que uma threat foi detectada
+    pub fn set_threat_detected(&mut self, detected: bool) {
+        self.threat_detected_recently = detected;
+        if detected {
+            self.threat_detection_ply = self.last_moves.len();
+        }
+    }
+
+    /// Verifica se threat foi detectada recentemente
+    pub fn recent_threat_detected(&self) -> bool {
+        if !self.threat_detected_recently {
+            return false;
+        }
+        
+        // Threat é "recente" se foi detectada nas últimas 4 plies
+        let current_ply = self.last_moves.len();
+        current_ply.saturating_sub(self.threat_detection_ply) <= 4
+    }
+
+    /// Limpa flags de threat detection
+    pub fn clear_threat_detection(&mut self) {
+        self.threat_detected_recently = false;
+        self.threat_detection_ply = 0;
+    }
+
+    /// Verifica se estamos em null move search
+    pub fn in_null_move_search(&self) -> bool {
+        !self.null_move_stack.is_empty()
     }
 
 }

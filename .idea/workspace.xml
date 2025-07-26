@@ -12,24 +12,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_18_07_2025_14_41_[Changes]/shelved.patch" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_18_07_2025_14_41__Changes_.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/board.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/board.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/king_safety.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/king_safety.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/moves/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/moves/queen.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/queen.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/moves/sliding.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/sliding.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/search/context.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/context.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/mate_detection.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/mate_detection.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/ordering.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/ordering.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/quiescence.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/quiescence.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/see.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/see.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/types.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -236,7 +220,23 @@
       <option name="project" value="LOCAL" />
       <updated>1753496818106</updated>
     </task>
-    <option name="localTasksCounter" value="11" />
+    <task id="LOCAL-00011" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753555308362</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1753555308362</updated>
+    </task>
+    <task id="LOCAL-00012" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753555321041</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1753555321042</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
