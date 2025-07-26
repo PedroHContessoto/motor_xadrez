@@ -139,8 +139,7 @@ pub fn dynamic_aspiration_search(
             alpha = calculate_fail_low_bound(prev_score, current_window, &config);
             current_window = expand_window_intelligently(current_window, &config, history, false);
             
-            println!("info string Aspiration fail low: score={} new_alpha={} window={}", 
-                     score, alpha, current_window);
+            // Fail low detectado
                      
         } else if score >= beta {
             // Fail high - expande para cima  
@@ -148,8 +147,7 @@ pub fn dynamic_aspiration_search(
             beta = calculate_fail_high_bound(prev_score, current_window, &config);
             current_window = expand_window_intelligently(current_window, &config, history, true);
             
-            println!("info string Aspiration fail high: score={} new_beta={} window={}", 
-                     score, beta, current_window);
+            // Fail high detectado
                      
         } else {
             // Sucesso! Score dentro da janela
@@ -157,8 +155,7 @@ pub fn dynamic_aspiration_search(
             history.update_window_size(current_window);
             history.update_score_volatility(score - prev_score);
             
-            println!("info string Aspiration success: score={} window={} searches={}", 
-                     score, current_window, searches_performed);
+            // Aspiration window encontrada com sucesso
             
             return AspirationResult {
                 score,
@@ -176,8 +173,7 @@ pub fn dynamic_aspiration_search(
             history.update_fail(true);
             history.update_window_size(-1);
             
-            println!("info string Aspiration timeout: final_search score={} searches={}", 
-                     final_score, searches_performed + 1);
+            // Timeout - fazendo busca final completa
             
             return AspirationResult {
                 score: final_score,

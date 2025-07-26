@@ -157,6 +157,16 @@ fn pvs_search_internal(
         return if in_check { -(MATE_VALUE - ply as i32) } else { 0 };
     }
 
+    // === SINGULAR EXTENSIONS ===
+    let mut singular_extension = 0;
+    if depth >= SINGULAR_EXTENSION_DEPTH && tt_move.is_some() && !is_pv_node {
+        if let Some(singular_ext) = evaluate_singular_extension(
+            board, tt_move.unwrap(), depth, alpha, beta, tt, context, start_time, max_time_ms, ply
+        ) {
+            singular_extension = singular_ext;
+        }
+    }
+
     // Passa o tt_move para a função de ordenação
     let ordered_moves = order_moves(board, legal_moves, tt, context, depth);
     let mut best_move = None;
@@ -231,7 +241,13 @@ fn pvs_search_internal(
         if gives_check { extension += 1; }
         if mv.promotion.is_some() { extension += 1; }
         if is_recapture(board, *mv, context) { extension += 1; }
-        extension = extension.min(2);
+        
+        // Aplica singular extension se movimento da TT
+        if Some(*mv) == tt_move && singular_extension > 0 {
+            extension += singular_extension;
+        }
+        
+        extension = extension.min(3); // Aumentado para permitir singular extensions
 
         let mut score;
 
@@ -850,4 +866,203 @@ fn is_endgame_position(board: &Board) -> bool {
     let major_pieces = (board.queens | board.rooks).count_ones();
     
     total_pieces <= 12 || major_pieces <= 2
+}
+
+// ============================================================================
+// SINGULAR EXTENSIONS - EXTENSÕES QUANDO MOVIMENTO É CLARAMENTE SUPERIOR
+// ============================================================================
+
+/// Constantes para Singular Extensions
+const SINGULAR_MARGIN: i32 = 64;           // Margem para considerar movimento singular
+const SINGULAR_SEARCH_DEPTH_REDUCTION: u8 = 3; // Redução na busca de verificação
+const SINGULAR_MAX_EXTENSION: u8 = 1;      // Extensão máxima
+const MULTICUT_MARGIN: i32 = 128;          // Margem para detecção de multi-cut
+const MULTICUT_DEPTH: u8 = 8;              // Profundidade mínima para multi-cut
+
+/// Avalia se movimento merece extensão singular
+fn evaluate_singular_extension(
+    board: &Board,
+    tt_move: Move,
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> Option<u8> {
+    // Verifica se tempo permite busca adicional
+    if start_time.elapsed().as_millis() as u64 > max_time_ms / 2 {
+        return None;
+    }
+    
+    // Obtém score da TT para este movimento
+    let tt_score = if let Some(entry) = tt.probe(board.zobrist_hash) {
+        if entry.depth >= depth.saturating_sub(2) {
+            entry.score
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+    
+    // Calcula bounds para busca singular
+    let singular_beta = (tt_score - SINGULAR_MARGIN).max(alpha);
+    let search_depth = depth.saturating_sub(SINGULAR_SEARCH_DEPTH_REDUCTION);
+    
+    if search_depth <= 0 {
+        return None;
+    }
+    
+    // Busca excluindo o movimento da TT para ver se outros movimentos são bons
+    let excluded_score = search_without_move(
+        board, tt_move, search_depth, alpha, singular_beta, 
+        tt, context, start_time, max_time_ms, ply
+    )?;
+    
+    // Analisa resultado para determinar tipo de extensão
+    if excluded_score < singular_beta {
+        // Movimento é singular - outros movimentos são significativamente piores
+        Some(SINGULAR_MAX_EXTENSION)
+    } else if excluded_score >= beta && depth >= MULTICUT_DEPTH {
+        // Multi-cut detectado - vários movimentos são bons, pode podar
+        // Retorna extensão negativa (redução) em alguns casos extremos
+        None
+    } else {
+        // Movimento não é suficientemente singular
+        None
+    }
+}
+
+/// Busca excluindo movimento específico para teste de singularidade
+fn search_without_move(
+    board: &Board,
+    excluded_move: Move,
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> Option<i32> {
+    if depth == 0 {
+        return Some(quiescence_search(board, alpha, beta, tt, context));
+    }
+    
+    // Gera movimentos excluindo o movimento da TT
+    let legal_moves = board.generate_legal_moves();
+    let mut moves_to_search = Vec::new();
+    
+    for mv in legal_moves {
+        if mv != excluded_move {
+            moves_to_search.push(mv);
+        }
+    }
+    
+    if moves_to_search.is_empty() {
+        return Some(alpha); // Sem movimentos alternativos
+    }
+    
+    // Ordena movimentos (simplificado para performance)
+    let ordered_moves = order_moves_simple(board, moves_to_search, context);
+    
+    let mut best_score = -50000;
+    let mut moves_searched = 0;
+    
+    for mv in &ordered_moves {
+        // Limita número de movimentos para performance
+        if moves_searched >= 8 {
+            break;
+        }
+        
+        // Verifica timeout
+        if context.should_stop || start_time.elapsed().as_millis() as u64 > max_time_ms * 3 / 4 {
+            break;
+        }
+        
+        let mut temp_board = *board;
+        let _undo_info = temp_board.make_move_fast(*mv);
+        
+        context.push_move(*mv);
+        
+        let score = if moves_searched == 0 {
+            -pvs_search_internal(&temp_board, depth - 1, -beta, -alpha, tt, context, start_time, max_time_ms, false, ply + 1)
+        } else {
+            // Scout search com janela zero
+            let scout_score = -pvs_search_internal(&temp_board, depth - 1, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false, ply + 1);
+            if scout_score > alpha && scout_score < beta {
+                -pvs_search_internal(&temp_board, depth - 1, -beta, -alpha, tt, context, start_time, max_time_ms, false, ply + 1)
+            } else {
+                scout_score
+            }
+        };
+        
+        context.pop_move();
+        moves_searched += 1;
+        
+        best_score = best_score.max(score);
+        
+        if score >= beta {
+            return Some(score); // Beta cutoff
+        }
+    }
+    
+    Some(best_score)
+}
+
+/// Ordenação simplificada para busca singular (performance)
+fn order_moves_simple(board: &Board, moves: Vec<Move>, context: &SearchContext) -> Vec<Move> {
+    let mut scored_moves: Vec<(Move, i32)> = moves.into_iter().map(|mv| {
+        let mut score = 0;
+        
+        // Prioriza capturas
+        if board.is_capture(mv) {
+            score += 1000;
+            // Adiciona valor MVV-LVA simplificado
+            if let Some(captured) = board.get_piece_on_square(mv.to) {
+                score += get_piece_value_simple(captured) * 10;
+            }
+            if let Some(attacker) = board.get_piece_on_square(mv.from) {
+                score -= get_piece_value_simple(attacker);
+            }
+        }
+        
+        // Prioriza promoções
+        if mv.promotion.is_some() {
+            score += 900;
+        }
+        
+        // Killer moves
+        if context.is_killer(mv, 0) { // Usa depth 0 como aproximação
+            score += 500;
+        }
+        
+        // Historical score simplificado
+        if let Some(piece) = board.get_piece_on_square(mv.from) {
+            score += context.get_history_score(mv, piece) / 100;
+        }
+        
+        (mv, score)
+    }).collect();
+    
+    // Ordena por score (maior primeiro)
+    scored_moves.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    scored_moves.into_iter().map(|(mv, _)| mv).collect()
+}
+
+/// Valores simplificados para ordenação MVV-LVA
+fn get_piece_value_simple(piece: crate::types::PieceKind) -> i32 {
+    match piece {
+        crate::types::PieceKind::Pawn => 1,
+        crate::types::PieceKind::Knight => 3,
+        crate::types::PieceKind::Bishop => 3,
+        crate::types::PieceKind::Rook => 5,
+        crate::types::PieceKind::Queen => 9,
+        crate::types::PieceKind::King => 100,
+    }
 }

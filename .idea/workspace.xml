@@ -11,7 +11,12 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate" />
+    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/aspiration.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/aspiration.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -28,7 +33,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="pelanca2" />
+        <entry key="$PROJECT_DIR$" value="pelanca3" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -62,7 +67,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "pelanca3",
+    "git-widget-placeholder": "pelanca4",
     "ignore.virus.scanning.warn.message": "true",
     "last_opened_file_path": "D:/motor_xadrez",
     "node.js.detected.package.eslint": "true",
@@ -249,7 +254,23 @@
       <option name="project" value="LOCAL" />
       <updated>1753556381277</updated>
     </task>
-    <option name="localTasksCounter" value="15" />
+    <task id="LOCAL-00015" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753556619150</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1753556619150</updated>
+    </task>
+    <task id="LOCAL-00016" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753556685959</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1753556685959</updated>
+    </task>
+    <option name="localTasksCounter" value="17" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
