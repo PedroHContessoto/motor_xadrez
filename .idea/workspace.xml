@@ -11,12 +11,7 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/bishop_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/bishop_mobility.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/aspiration.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/aspiration.rs" afterDir="false" />
-    </list>
+    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -246,7 +241,15 @@
       <option name="project" value="LOCAL" />
       <updated>1753555818378</updated>
     </task>
-    <option name="localTasksCounter" value="14" />
+    <task id="LOCAL-00014" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753556381277</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1753556381277</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

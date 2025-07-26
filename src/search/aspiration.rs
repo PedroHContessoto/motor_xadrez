@@ -108,8 +108,7 @@ pub fn dynamic_aspiration_search(
     let mut failed_high = 0;
     let mut failed_low = 0;
     
-    println!("info string Aspiration: window={} complexity={:.2} volatility={:.1}", 
-             initial_window, position_complexity, history.score_volatility);
+    // Log removido - mantém apenas para debug se necessário
 
     loop {
         searches_performed += 1;
