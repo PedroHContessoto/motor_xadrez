@@ -80,22 +80,22 @@ impl TimeManager {
 
             // Ajustes inteligentes baseados na complexidade
             if tactical_factors.is_tactical {
-                base_divisor = (base_divisor as f32 * 0.75) as u64; // 25% mais tempo em posições táticas
+                base_divisor = (base_divisor as f32 * 0.65) as u64; // 35% mais tempo em posições táticas (antes era 25%)
                 
                 // Ajustes graduais para situações específicas
                 if tactical_factors.has_hanging_pieces {
-                    base_divisor = base_divisor.saturating_sub(2); // Mais tempo para salvar peças
+                    base_divisor = base_divisor.saturating_sub(3); // Mais tempo para salvar peças (antes era 2)
                 }
                 if tactical_factors.in_check {
-                    base_divisor = base_divisor.saturating_sub(3); // Muito mais tempo em xeque
+                    base_divisor = base_divisor.saturating_sub(4); // Muito mais tempo em xeque (antes era 3)
                 }
                 if tactical_factors.is_critical {
-                    base_divisor = base_divisor.saturating_sub(2); // Tempo extra para posições críticas
+                    base_divisor = base_divisor.saturating_sub(5); // Tempo extra para posições críticas (antes era 2)
                 }
             }
 
             // Não deixar o divisor ficar muito baixo
-            base_divisor = base_divisor.max(15); // Era 8, agora 15
+            base_divisor = base_divisor.max(10); // Reduzido de 15 -> 10 para mais tempo
 
             let base_time = time_left / base_divisor;
             let increment_bonus = my_inc.unwrap_or(0).saturating_mul(2) / 3;
@@ -175,16 +175,18 @@ impl TimeManager {
             complexity.king_proximity = 8 - king_distance; // Maior valor = reis mais próximos
         }
 
-        // 6. Determina se posição é tática
+        // 6. Determina se posição é tática (mais sensível)
         complexity.is_tactical = complexity.in_check ||
             hanging_pieces > 0 ||
-            attacked_pieces > 2 ||
-            (total_pieces <= 16 && complexity.king_proximity > 5); // Finais ativos
+            attacked_pieces > 1 || // Reduzido de 2 -> 1 (mais sensível)
+            (total_pieces <= 20 && complexity.king_proximity > 4) || // Finais ativos (antes era 16/5)
+            (total_pieces > 28 && attacked_pieces > 0); // Aberturas com peças atacadas
 
         // 7. Determina se posição é crítica (precisa de muito tempo)
-        complexity.is_critical = hanging_pieces > 1 ||
+        complexity.is_critical = hanging_pieces > 0 || // Qualquer peça pendurada é crítico
             (complexity.in_check && attacked_pieces > 0) ||
-            (total_pieces <= 10 && complexity.king_proximity > 6); // Finais críticos
+            (total_pieces <= 12 && complexity.king_proximity > 5) || // Finais críticos
+            (attacked_pieces > 2); // Múltiplas peças sob ataque
 
         complexity
     }
@@ -213,18 +215,24 @@ impl TimeManager {
         }
 
         let tactical_factors = self.analyze_position_complexity(board);
-        let mut max_depth = 40u8; // Era 50, agora 40 (mais realista)
+        let mut max_depth = 70u8; // Aumentado significativamente de 40 -> 70
 
         // Ajusta profundidade baseada na complexidade tática
         if tactical_factors.is_critical {
-            max_depth = 45; // Era 60
+            max_depth = 80; // Aumentado de 45 -> 80 para posições críticas
         } else if tactical_factors.is_tactical {
-            max_depth = 42; // Era 55
+            max_depth = 75; // Aumentado de 42 -> 75 para posições táticas
         }
 
-        // Em finais simples, limita a profundidade para evitar perder tempo
+        // Em finais simples, ainda assim mantém profundidade alta
         if tactical_factors.piece_density < 0.25 && !tactical_factors.is_tactical {
-            max_depth = 35; // Era 45
+            max_depth = 60; // Aumentado de 35 -> 60 para finais técnicos
+        }
+
+        // Ajustes especiais para aberturas conhecidas
+        let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+        if total_pieces > 28 {
+            max_depth = 65; // Abertura: profundidade moderada mas alta
         }
 
         max_depth

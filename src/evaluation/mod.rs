@@ -102,7 +102,7 @@ fn evaluate_development(board: &Board, color: Color) -> i32 {
     score + knights_undeveloped + bishops_undeveloped
 }
 
-/// Avalia castling
+/// Avalia castling com valores aumentados
 fn evaluate_castling(board: &Board, color: Color) -> i32 {
     let mut score = 0;
 
@@ -111,12 +111,12 @@ fn evaluate_castling(board: &Board, color: Color) -> i32 {
         if white_king != 0 {
             let king_square = white_king.trailing_zeros();
             if king_square == 6 || king_square == 2 { // g1 ou c1 (castling feito)
-                score += 50;
+                score += 80; // Aumentado de 50 -> 80
             } else if king_square == 4 { // Ainda em e1
                 if board.castling_rights & 0x03 == 0 {
-                    score -= 30; // Perdeu castling sem fazer
+                    score -= 60; // Aumentado de -30 -> -60 (penalidade por perder roque)
                 } else {
-                    score += 10; // Ainda pode fazer
+                    score += 25; // Aumentado de 10 -> 25 (incentivo para fazer roque)
                 }
             }
         }
@@ -125,12 +125,12 @@ fn evaluate_castling(board: &Board, color: Color) -> i32 {
         if black_king != 0 {
             let king_square = black_king.trailing_zeros();
             if king_square == 62 || king_square == 58 { // g8 ou c8
-                score += 50;
+                score += 80; // Aumentado de 50 -> 80
             } else if king_square == 60 { // Ainda em e8
                 if board.castling_rights & 0x0C == 0 {
-                    score -= 30;
+                    score -= 60; // Aumentado de -30 -> -60
                 } else {
-                    score += 10;
+                    score += 25; // Aumentado de 10 -> 25
                 }
             }
         }
@@ -178,14 +178,27 @@ fn apply_material_safety_net(board: &Board, mut score: i32) -> i32 {
     // Se a avaliação é muito mais otimista que o material, aplica penalty
     let score_vs_material_diff = score - material_diff;
     
-    if score_vs_material_diff.abs() > 200 {
-        // Avaliação posicional muito extrema (>200cp vs material)
-        let penalty = (score_vs_material_diff.abs() - 200) / 3;
+    // Mais conservador com peças valiosas: reduzido de 200 -> 150
+    if score_vs_material_diff.abs() > 150 {
+        // Avaliação posicional muito extrema (>150cp vs material)
+        let penalty = (score_vs_material_diff.abs() - 150) / 2; // Penalty mais forte: /2 em vez de /3
         
         if score_vs_material_diff > 0 {
             score -= penalty; // Reduz avaliação otimista excessiva
         } else {
             score += penalty; // Reduz avaliação pessimista excessiva
+        }
+    }
+    
+    // Safety check adicional: se diferença material é extrema (>300cp), limita score posicional
+    if material_diff.abs() > 300 {
+        let material_dominance = material_diff.signum();
+        let max_positional_compensation = 200; // Máximo que posição pode compensar material
+        
+        if material_dominance > 0 && score < material_diff - max_positional_compensation {
+            score = material_diff - max_positional_compensation;
+        } else if material_dominance < 0 && score > material_diff + max_positional_compensation {
+            score = material_diff + max_positional_compensation;
         }
     }
     
