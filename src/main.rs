@@ -234,6 +234,13 @@ impl TimeManager {
 fn main() {
     // Inicializa as dependências do motor
     motor_xadrez::evaluation::pawn_structure::init_pawn_masks();
+    
+    // PERFORMANCE CRÍTICA: Inicializa Magic Bitboards (2-3x speedup)
+    motor_xadrez::moves::magic_bitboards::init_magic_bitboards();
+    
+    // PERFORMANCE CRÍTICA: Reporta suporte de intrinsics (popcount, BMI, etc.)
+    motor_xadrez::intrinsics::init_intrinsics();
+    
     let mut board = Board::new();
     let mut tt = TranspositionTable::new(128); // 16 MB
     let opening_book = OpeningBook::new(); // Carrega livro de aberturas

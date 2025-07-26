@@ -26,7 +26,7 @@ pub fn see(board: &Board, mv: Move) -> i32 {
 
     // Simula recapturas em sequência
     let mut temp_board = *board;
-    temp_board.make_move(mv);
+    let _undo_info = temp_board.make_move_fast(mv);
 
     let recapture_value = see_recapture(&temp_board, target, !board.to_move, attacker_value, 0);
 
@@ -53,7 +53,7 @@ fn see_recapture(board: &Board, target_square: u8, side_to_move: Color, last_att
             is_en_passant: false,
         };
 
-        temp_board.make_move(recapture_move);
+        let _undo_info = temp_board.make_move_fast(recapture_move);
 
         // Valor ganho: peça atacada menos valor da próxima recaptura
         let next_recapture = see_recapture(&temp_board, target_square, !side_to_move, recapture_value, depth + 1);

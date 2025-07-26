@@ -47,6 +47,24 @@ impl PieceKind {
     }
 }
 
+// ============================================================================
+// COPY-MAKE OPTIMIZATION STRUCTURES
+// ============================================================================
+
+/// Estrutura para armazenar o estado do tabuleiro antes de um movimento
+/// Usado para copy-make optimization (make/unmake rápido)
+#[derive(Debug, Clone, Copy)]
+pub struct UndoInfo {
+    pub captured_piece: Option<PieceKind>,
+    pub captured_square: u8,
+    pub old_castling_rights: u8,
+    pub old_en_passant_target: Option<u8>,
+    pub old_halfmove_clock: u16,
+    pub old_zobrist_hash: u64,
+    pub old_white_king_in_check: bool,
+    pub old_black_king_in_check: bool,
+}
+
 
 // Struct para representar uma peça no tabuleiro, combinando o tipo e a cor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

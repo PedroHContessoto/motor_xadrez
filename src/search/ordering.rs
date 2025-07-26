@@ -1,10 +1,23 @@
-// Move ordering aprimorado com SEE e counter-moves
+// Sistema avançado de ordenação de movimentos com múltiplas heurísticas
 use crate::{board::Board, transposition::TranspositionTable, types::{Move, PieceKind, Color}};
 use super::{SearchContext, see::see};
 
+// === CONSTANTES PARA ORDENAÇÃO AVANÇADA ===
 const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20000];
 
-/// Ordena movimentos para maximizar cutoffs (melhor primeiro)
+// Pesos para diferentes tipos de movimentos
+const SCORE_TT_MOVE: i32 = 10_000_000;          // TT move tem prioridade absoluta
+const SCORE_GOOD_CAPTURE_BASE: i32 = 8_000_000; // Capturas boas
+const SCORE_EQUAL_CAPTURE: i32 = 6_000_000;     // Capturas iguais
+const SCORE_KILLER_1: i32 = 4_000_000;          // Primeiro killer
+const SCORE_KILLER_2: i32 = 3_000_000;          // Segundo killer
+const SCORE_COUNTER_MOVE: i32 = 2_000_000;      // Counter move
+const SCORE_CASTLING: i32 = 1_500_000;          // Castling
+const SCORE_PROMOTION_BASE: i32 = 1_000_000;    // Promoções
+const SCORE_HISTORY_BASE: i32 = 500_000;        // Histórico de movimentos
+const SCORE_BAD_CAPTURE_BASE: i32 = 100_000;    // Capturas ruins (mas ainda considera)
+
+/// Sistema avançado de ordenação com múltiplas heurísticas
 pub fn order_moves(
     board: &Board,
     moves: Vec<Move>,
@@ -12,149 +25,177 @@ pub fn order_moves(
     context: &SearchContext,
     depth: u8
 ) -> Vec<Move> {
-    // Move da TT tem prioridade máxima (se legal)
+    // === 1. IDENTIFICAÇÃO DE MOVIMENTOS ESPECIAIS ===
+    
+    // TT Move (prioridade absoluta)
     let tt_move = if let Some(entry) = tt.probe(board.zobrist_hash) {
         entry.best_move.filter(|mv| board.is_legal_move(*mv))
     } else {
         None
     };
-
+    
+    // Killer moves para esta profundidade
+    let killer1 = context.get_killer_move(depth, 0);
+    let killer2 = context.get_killer_move(depth, 1);
+    
+    // Counter move (resposta ao último movimento)
+    let counter_move = context.get_last_move()
+        .and_then(|last_mv| context.get_counter_move(last_mv));
+    
+    // === 2. SCORING AVANÇADO DE MOVIMENTOS ===
+    
     let mut scored_moves = moves.into_iter().map(|mv| {
-        let mut score = 0;
-
-        // 1. TT Move (prioridade máxima)
-        if Some(mv) == tt_move {
-            score = 2_000_000; // Prioridade absoluta
-        }
-        // 2. Capturas (ordenadas por SEE + MVV-LVA otimizada)
-        else if board.is_capture(mv) {
-            let see_value = see(board, mv);
-            let captured_piece_value = get_captured_piece_value(board, mv);
-            let attacking_piece_value = get_attacking_piece_value(board, mv);
-            
-            if see_value > 0 {
-                // Captura boa: SEE + MVV-LVA
-                score = 1_800_000 + see_value + (captured_piece_value * 10) - attacking_piece_value;
-            } else if see_value == 0 {
-                // Troca igual
-                score = 1_600_000 + captured_piece_value;
-            } else {
-                // Captura ruim mas ainda considera
-                score = 400_000 + see_value + captured_piece_value;
-            }
-        }
-        // 3. Castling (desenvolvimento seguro)
-        else if mv.is_castling {
-            score = 15_000;
-        }
-        // 4. Promoções (prioridade muito alta, especialmente promoção para dama)
-        else if mv.promotion.is_some() {
-            score = match mv.promotion {
-                Some(PieceKind::Queen) => 30_000,
-                Some(PieceKind::Rook) => 28_000,
-                Some(PieceKind::Bishop) => 26_000,
-                Some(PieceKind::Knight) => 24_000,
-                _ => 22_000,
-            };
-        }
-        // 5. Movimentos defensivos (nova prioridade alta)
-        else if is_defensive_move(board, mv) {
-            score = 20_000;
-        }
-        // 6. Killers (moves que causaram cutoffs) - ordenação por idade
-        else if context.is_killer(mv, depth) {
-            let killer_age = context.get_killer_age(mv, depth);
-            score = 1_400_000 - (killer_age * 10_000); // Killers mais recentes primeiro
-        }
-        // 7. Counter-moves (refutam último movimento inimigo)
-        else if is_counter_move(mv, context) {
-            score = 1_200_000;
-        }
-        // 8. Checks (podem causar táticas) - prioridade por tipo
-        else if gives_check_heuristic(board, mv) {
-            if is_discovered_check(board, mv) {
-                score = 1_100_000; // Checks descobertos são perigosos
-            } else {
-                score = 1_000_000;
-            }
-        }
-        // 9. Avaliação inteligente de movimentos de rei
-        else if board.get_piece_on_square(mv.from) == Some(PieceKind::King) {
-            let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
-            let queens_on_board = board.queens.count_ones();
-            
-            // Roque sempre tem alta prioridade
-            if mv.is_castling {
-                score = 750_000;
-            }
-            // No endgame (poucos peões/peças), rei ativo é bom
-            else if total_pieces <= 8 || (total_pieces <= 12 && queens_on_board == 0) {
-                score = 400_000; // Rei ativo no endgame
-            }
-            // No meio-jogo, depende da segurança
-            else {
-                let king_rank = (mv.to / 8) as usize;
-                let king_file = (mv.to % 8) as usize;
-                
-                // Penaliza movimentos para o centro/frente
-                let safety_penalty = match board.to_move {
-                    Color::White => {
-                        if king_rank > 2 { 200_000 } // Rei muito avançado
-                        else if king_rank > 1 { 150_000 } // Rei moderadamente exposto
-                        else { 300_000 } // Movimento na primeira fileira ok
-                    },
-                    Color::Black => {
-                        if king_rank < 5 { 200_000 } // Rei muito avançado
-                        else if king_rank < 6 { 150_000 } // Rei moderadamente exposto  
-                        else { 300_000 } // Movimento na última fileira ok
-                    }
-                };
-                
-                // Penalidade extra por mover para o centro
-                if king_file >= 3 && king_file <= 4 {
-                    score = safety_penalty - 50_000;
-                } else {
-                    score = safety_penalty;
-                }
-            }
-        }
-        // 10. Histórico e heurísticas posicionais
-        else {
-            if let Some(piece) = board.get_piece_on_square(mv.from) {
-                let history_score = context.get_history_score(mv, piece);
-                let butterfly_score = context.get_butterfly_score(mv);
-                score = 500_000 + history_score.clamp(-100_000, 100_000) + butterfly_score;
-            } else {
-                score = 500_000;
-            }
-
-            // Bônus por desenvolvimento na abertura (melhorado)
-            if is_development_move(board, mv) {
-                score += 50_000;
-            }
-
-            // Bônus por controle de centro (melhorado)
-            if controls_center(mv) {
-                score += 30_000;
-            }
-            
-            // Bônus para movimentos que melhoram a estrutura de peões
-            if improves_pawn_structure(board, mv) {
-                score += 20_000;
-            }
-            
-            // Penalização para movimentos que enfraquecem o rei
-            if weakens_king_safety(board, mv) {
-                score -= 40_000;
-            }
-        }
-
+        let score = calculate_move_score(
+            mv, 
+            board, 
+            context, 
+            tt_move, 
+            killer1, 
+            killer2, 
+            counter_move,
+            depth
+        );
         (mv, score)
-    }).collect::<Vec<(Move, i32)>>();
-
-    // Ordena por pontuação (maior primeiro)
-    scored_moves.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+    }).collect::<Vec<_>>();
+    
+    // === 3. ORDENAÇÃO OTIMIZADA ===
+    
+    // Ordenação estável por score (maior primeiro)
+    scored_moves.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    // Retorna apenas os movimentos ordenados
     scored_moves.into_iter().map(|(mv, _)| mv).collect()
+}
+
+/// Calcula score abrangente para um movimento
+fn calculate_move_score(
+    mv: Move,
+    board: &Board,
+    context: &SearchContext,
+    tt_move: Option<Move>,
+    killer1: Option<Move>,
+    killer2: Option<Move>,
+    counter_move: Option<Move>,
+    depth: u8
+) -> i32 {
+    // === 1. TT MOVE (PRIORIDADE ABSOLUTA) ===
+    if Some(mv) == tt_move {
+        return SCORE_TT_MOVE;
+    }
+    
+    // === 2. CAPTURAS COM ANÁLISE SEE AVANÇADA ===
+    if board.is_capture(mv) {
+        return score_capture_advanced(mv, board);
+    }
+    
+    // === 3. PROMOÇÕES ===
+    if let Some(promotion) = mv.promotion {
+        return score_promotion(promotion);
+    }
+    
+    // === 4. MOVIMENTOS ESPECIAIS NÃO-CAPTURA ===
+    
+    // Killer moves
+    if Some(mv) == killer1 {
+        return SCORE_KILLER_1;
+    }
+    if Some(mv) == killer2 {
+        return SCORE_KILLER_2;
+    }
+    
+    // Counter move
+    if Some(mv) == counter_move {
+        return SCORE_COUNTER_MOVE;
+    }
+    
+    // Castling
+    if mv.is_castling {
+        return SCORE_CASTLING;
+    }
+    
+    // === 5. HISTÓRICO E HEURÍSTICAS AVANÇADAS ===
+    
+    let mut quiet_score = 0;
+    
+    // Histórico de movimentos
+    if let Some(piece) = board.get_piece_on_square(mv.from) {
+        let history = context.get_history_score(mv, piece);
+        quiet_score += (history * SCORE_HISTORY_BASE) / 10000; // Normaliza
+    }
+    
+    // Heurísticas posicionais
+    quiet_score += score_positional_heuristics(mv, board, depth);
+    
+    quiet_score
+}
+
+/// Score avançado para capturas com análise SEE
+fn score_capture_advanced(mv: Move, board: &Board) -> i32 {
+    let see_value = see(board, mv);
+    let captured_value = get_captured_piece_value(board, mv);
+    let attacker_value = get_attacking_piece_value(board, mv);
+    
+    if see_value > 0 {
+        // Captura boa - usa MVV-LVA otimizado
+        SCORE_GOOD_CAPTURE_BASE + captured_value * 10 - attacker_value
+    } else if see_value == 0 {
+        // Captura igual - ainda prioritária
+        SCORE_EQUAL_CAPTURE + captured_value
+    } else {
+        // Captura ruim mas ainda considerável
+        SCORE_BAD_CAPTURE_BASE + see_value
+    }
+}
+
+/// Score para promoções
+fn score_promotion(promotion: PieceKind) -> i32 {
+    match promotion {
+        PieceKind::Queen => SCORE_PROMOTION_BASE + 900,
+        PieceKind::Rook => SCORE_PROMOTION_BASE + 500,
+        PieceKind::Bishop => SCORE_PROMOTION_BASE + 330,
+        PieceKind::Knight => SCORE_PROMOTION_BASE + 320,
+        _ => SCORE_PROMOTION_BASE,
+    }
+}
+
+/// Heurísticas posicionais avançadas
+fn score_positional_heuristics(mv: Move, board: &Board, depth: u8) -> i32 {
+    let mut score = 0;
+    
+    // Desenvolvimento na abertura
+    if is_development_move(board, mv) {
+        score += 25000;
+    }
+    
+    // Controle de centro
+    if controls_center(mv) {
+        score += 15000;
+    }
+    
+    // Movimentos defensivos
+    if is_defensive_move(board, mv) {
+        score += 10000;
+    }
+    
+    // Checks
+    if gives_check_heuristic(board, mv) {
+        score += 8000;
+        if is_discovered_check(board, mv) {
+            score += 5000; // Discovered checks são perigosos
+        }
+    }
+    
+    // Penalizações
+    if weakens_king_safety(board, mv) {
+        score -= 20000;
+    }
+    
+    // Ajuste por profundidade (movimentos posicionais menos importantes em profundidade baixa)
+    if depth <= 3 {
+        score = score / 2;
+    }
+    
+    score
 }
 
 
@@ -268,7 +309,7 @@ fn is_defensive_move(board: &Board, mv: Move) -> bool {
 fn blocks_attack_to_square(board: &Board, mv: Move, target_sq: u8, enemy_color: Color) -> bool {
     // Simula o movimento e verifica se ainda há ataque à casa
     let mut temp_board = *board;
-    temp_board.make_move(mv);
+    let _undo_info = temp_board.make_move_fast(mv);
 
     // Se após o movimento a casa não está mais atacada, bloqueou o ataque
     !temp_board.is_square_attacked_by(target_sq, enemy_color)
@@ -277,7 +318,7 @@ fn blocks_attack_to_square(board: &Board, mv: Move, target_sq: u8, enemy_color: 
 /// Verifica se após o movimento a peça não estará atacada
 fn would_be_attacked_after_move(board: &Board, mv: Move, enemy_color: Color) -> bool {
     let mut temp_board = *board;
-    temp_board.make_move(mv);
+    let _undo_info = temp_board.make_move_fast(mv);
 
     temp_board.is_square_attacked_by(mv.to, enemy_color)
 }
@@ -285,7 +326,7 @@ fn would_be_attacked_after_move(board: &Board, mv: Move, enemy_color: Color) -> 
 /// Verifica se após o movimento a casa estará defendida
 fn defends_square_after_move(board: &Board, mv: Move, defended_sq: u8) -> bool {
     let mut temp_board = *board;
-    temp_board.make_move(mv);
+    let _undo_info = temp_board.make_move_fast(mv);
 
     // Verifica se a peça movida agora defende a casa
     temp_board.is_square_attacked_by(defended_sq, temp_board.to_move)

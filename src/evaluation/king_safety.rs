@@ -1,278 +1,505 @@
-// Segurança do rei aprimorada - considera ataques inimigos
-use crate::{board::Board, types::{Color, Bitboard}};
+// Sistema avançado de segurança do rei com Attack Units
+use crate::{board::Board, types::{Color, Bitboard, PieceKind}};
 use super::game_phase::GamePhase;
 
+// === CONSTANTES PARA ATTACK UNITS SYSTEM ===
 const CENTRAL_SQUARES: Bitboard = (1u64 << 27) | (1u64 << 28) | (1u64 << 35) | (1u64 << 36);
 
-/// Avalia a segurança do rei (versão aprimorada)
-pub fn evaluate_king_safety(board: &Board, color: Color, game_phase: &GamePhase) -> i32 {
-    if matches!(game_phase, GamePhase::Endgame) {
-        return 0; // Segurança menos importante no final
-    }
+// Valores de Attack Units por tipo de peça
+const ATTACK_UNITS: [i32; 6] = [
+    0,   // Pawn (não conta como atacante direto)
+    2,   // Knight
+    2,   // Bishop  
+    3,   // Rook
+    5,   // Queen
+    0,   // King (não conta)
+];
 
-    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let king_bb = board.kings & pieces;
+// Pesos para casas ao redor do rei (zona de perigo)
+const KING_DANGER_ZONE: [i32; 3] = [
+    100, // Casas adjacentes ao rei
+    50,  // Casas a 2 casas do rei
+    25,  // Casas a 3 casas do rei
+];
 
-    if king_bb == 0 {
-        return 0;
-    }
+// Thresholds para conversão de Attack Units em penalidades
+const DANGER_THRESHOLDS: [(i32, i32); 6] = [
+    (0,   0),    // Sem perigo
+    (5,   -50),  // Perigo leve
+    (10,  -150), // Perigo moderado
+    (20,  -300), // Perigo alto
+    (35,  -500), // Perigo muito alto
+    (50,  -800), // Perigo extremo
+];
 
-    let king_square = king_bb.trailing_zeros() as usize;
-    let rank = king_square / 8;
-    let file = king_square % 8;
-    let mut score = 0;
-
-    // 1. Shield de peões (código original mantido)
-    score += evaluate_pawn_shield(board, color, king_square, rank, file);
-
-    // 2. Penaliza rei no centro durante meio-jogo
-    if (CENTRAL_SQUARES & king_bb) != 0 {
-        score -= 50;
-    }
-
-    // 3. NOVO: Conta número de atacantes inimigos ao rei
-    score -= evaluate_enemy_attackers(board, color, king_square);
-
-    // 4. NOVO: Tropismo - Penaliza proximidade de peças inimigas
-    score -= evaluate_tropism(board, color, king_square);
-
-    // 5. Penalidade inteligente por rei exposto no meio-jogo
-    if !matches!(game_phase, GamePhase::Endgame) {
-        let king_rank = rank;
-        let king_file = file;
-
-        // Penalidade progressiva por rei exposto (mais balanceada)
-        let exposed_penalty = match color {
-            Color::White => {
-                if king_rank > 1 {
-                    // Penalidade crescente: -30 na 3ª, -60 na 4ª, -100 na 5ª, etc.
-                    -(30 + (king_rank as i32 - 2) * 30)
-                } else { 0 }
-            },
-            Color::Black => {
-                if king_rank < 6 {
-                    // Penalidade similar para pretas
-                    -(30 + (5 - king_rank as i32) * 30)
-                } else { 0 }
-            }
-        };
-
-        score += exposed_penalty;
-
-        // Penalidade por não ter feito roque quando necessário
-        if !has_castled(board, color) && !can_castle(board, color) {
-            score -= 60; // Penalidade moderada mas significativa
-        }
-
-        // Penalidade por rei no centro (apenas em posições muito expostas)
-        if king_file >= 3 && king_file <= 4 && (king_rank >= 3 && king_rank <= 4) {
-            score -= 40; // Rei no centro = perigoso mas não extremo
-        }
-    }
-
-    score
+/// Estrutura para análise completa de segurança do rei
+#[derive(Debug, Clone)]
+pub struct KingSafetyAnalysis {
+    pub attack_units: i32,
+    pub weak_squares: Bitboard,
+    pub pawn_shield_score: i32,
+    pub storm_danger: i32,
+    pub tropism_penalty: i32,
+    pub total_danger: i32,
 }
 
-fn evaluate_pawn_shield(board: &Board, color: Color, king_square: usize, rank: usize, file: usize) -> i32 {
-    let mut score = 0;
-    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+/// Avalia a segurança do rei com sistema avançado de Attack Units
+pub fn evaluate_king_safety(board: &Board, color: Color, game_phase: &GamePhase) -> i32 {
+    // Segurança menos crítica no endgame puro
+    if matches!(game_phase, GamePhase::Endgame | GamePhase::PureEndgame) {
+        return evaluate_endgame_king_safety(board, color);
+    }
 
-    let pawn_shield_files = [file.saturating_sub(1), file, (file + 1).min(7)];
-    let pawn_shield_ranks = if color == Color::White {
-        [rank + 1, rank + 2] // Fileiras na frente para brancas
-    } else {
-        [rank.saturating_sub(1), rank.saturating_sub(2)] // Fileiras na frente para pretas
+    let analysis = analyze_king_safety_comprehensive(board, color, game_phase);
+    
+    // Conversão de attack units para penalidade usando curva não-linear
+    let danger_penalty = convert_attack_units_to_penalty(analysis.attack_units);
+    
+    // Score final combinando todos os fatores
+    let total_score = analysis.pawn_shield_score 
+                     - danger_penalty 
+                     - analysis.storm_danger 
+                     - analysis.tropism_penalty;
+    
+    // Aplica fator de escala baseado na fase do jogo
+    let phase_factor = match game_phase {
+        GamePhase::Opening => 0.7,           // Menos crítico na abertura
+        GamePhase::EarlyMiddlegame => 1.0,   // Muito crítico
+        GamePhase::Middlegame => 1.2,        // Máxima criticidade
+        GamePhase::LateMiddlegame => 1.0,    // Ainda crítico
+        GamePhase::EarlyEndgame => 0.5,      // Menos crítico
+        _ => 0.2,                            // Mínimo no endgame
     };
+    
+    (total_score as f32 * phase_factor) as i32
+}
 
-    for &shield_file in &pawn_shield_files {
-        for &shield_rank in &pawn_shield_ranks {
-            if shield_rank < 8 {
-                let shield_square = shield_rank * 8 + shield_file;
-                if shield_square < 64 {
-                    let square_bb = 1u64 << shield_square;
-                    if (board.pawns & pieces & square_bb) != 0 {
-                        score += 15; // Bônus por peão protetor
-                    } else {
-                        score -= 20; // Penalidade por peão ausente
-                    }
+/// Análise comprehensive de segurança do rei
+fn analyze_king_safety_comprehensive(board: &Board, color: Color, game_phase: &GamePhase) -> KingSafetyAnalysis {
+    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let king_bb = board.kings & pieces;
+    
+    if king_bb == 0 {
+        return KingSafetyAnalysis {
+            attack_units: 0,
+            weak_squares: 0,
+            pawn_shield_score: 0,
+            storm_danger: 0,
+            tropism_penalty: 0,
+            total_danger: 0,
+        };
+    }
+    
+    let king_square = king_bb.trailing_zeros() as u8;
+    let rank = king_square / 8;
+    let file = king_square % 8;
+    
+    // === ANÁLISE COMPLETA DE ATTACK UNITS ===
+    let attack_units = calculate_attack_units(board, color, king_square);
+    let weak_squares = identify_weak_squares_around_king(board, color, king_square);
+    
+    // === ANÁLISE DE PAWN SHIELD ===
+    let pawn_shield_score = evaluate_pawn_shield_advanced(board, color, king_square);
+    
+    // === ANÁLISE DE PAWN STORM ===
+    let storm_danger = evaluate_pawn_storm_danger(board, color, king_square);
+    
+    // === ANÁLISE DE TROPISMO ===
+    let tropism_penalty = calculate_piece_tropism(board, color, king_square);
+    
+    // === PENALIDADES ESPECIAIS ===
+    let mut total_danger = attack_units;
+    
+    // Rei no centro durante meio-jogo
+    if (CENTRAL_SQUARES & king_bb) != 0 {
+        total_danger += 15; // Adiciona perigo por exposição central
+    }
+    
+    // Rei muito avançado
+    let advanced_penalty = match color {
+        Color::White => if rank > 2 { (rank - 2) as i32 * 8 } else { 0 },
+        Color::Black => if rank < 5 { (5 - rank) as i32 * 8 } else { 0 },
+    };
+    total_danger += advanced_penalty;
+    
+    KingSafetyAnalysis {
+        attack_units,
+        weak_squares,
+        pawn_shield_score,
+        storm_danger,
+        tropism_penalty,
+        total_danger,
+    }
+}
+
+/// Calcula Attack Units baseado em peças inimigas que atacam a zona do rei
+fn calculate_attack_units(board: &Board, color: Color, king_square: u8) -> i32 {
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let mut attack_units = 0;
+    
+    // Zona de perigo ao redor do rei (3x3 centrado no rei)
+    let danger_zone = get_king_danger_zone(king_square);
+    
+    // === ANÁLISE DE CAVALOS ===
+    let enemy_knights = board.knights & enemy_pieces;
+    let mut knights = enemy_knights;
+    while knights != 0 {
+        let knight_sq = knights.trailing_zeros() as u8;
+        knights &= knights - 1;
+        
+        let knight_attacks = crate::moves::knight::get_knight_attacks_lookup(knight_sq);
+        if (knight_attacks & danger_zone) != 0 {
+            attack_units += ATTACK_UNITS[1]; // Knight = 2 units
+            
+            // Bônus por atacar casas críticas adjacentes ao rei
+            let king_adjacent = crate::moves::king::get_king_attacks_lookup(king_square);
+            if (knight_attacks & king_adjacent) != 0 {
+                attack_units += 1; // Bônus por atacar casa adjacente
+            }
+        }
+    }
+    
+    // === ANÁLISE DE BISPOS ===
+    let enemy_bishops = board.bishops & enemy_pieces;
+    let mut bishops = enemy_bishops;
+    while bishops != 0 {
+        let bishop_sq = bishops.trailing_zeros() as u8;
+        bishops &= bishops - 1;
+        
+        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, board.white_pieces | board.black_pieces);
+        if (bishop_attacks & danger_zone) != 0 {
+            attack_units += ATTACK_UNITS[2]; // Bishop = 2 units
+            
+            // Bônus por diagonal longa apontando para o rei
+            if (bishop_attacks & (1u64 << king_square)) != 0 {
+                attack_units += 2; // Ataque direto ao rei
+            }
+        }
+    }
+    
+    // === ANÁLISE DE TORRES ===
+    let enemy_rooks = board.rooks & enemy_pieces;
+    let mut rooks = enemy_rooks;
+    while rooks != 0 {
+        let rook_sq = rooks.trailing_zeros() as u8;
+        rooks &= rooks - 1;
+        
+        let rook_attacks = crate::moves::sliding::get_rook_attacks(rook_sq, board.white_pieces | board.black_pieces);
+        if (rook_attacks & danger_zone) != 0 {
+            attack_units += ATTACK_UNITS[3]; // Rook = 3 units
+            
+            // Bônus por ataque direto na mesma fileira/coluna
+            if (rook_attacks & (1u64 << king_square)) != 0 {
+                attack_units += 3; // Ataque direto poderoso
+            }
+        }
+    }
+    
+    // === ANÁLISE DE RAINHAS ===
+    let enemy_queens = board.queens & enemy_pieces;
+    let mut queens = enemy_queens;
+    while queens != 0 {
+        let queen_sq = queens.trailing_zeros() as u8;
+        queens &= queens - 1;
+        
+        // Rainha ataca como torre + bispo
+        let rook_attacks = crate::moves::sliding::get_rook_attacks(queen_sq, board.white_pieces | board.black_pieces);
+        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(queen_sq, board.white_pieces | board.black_pieces);
+        let queen_attacks = rook_attacks | bishop_attacks;
+        if (queen_attacks & danger_zone) != 0 {
+            attack_units += ATTACK_UNITS[4]; // Queen = 5 units
+            
+            // Bônus massivo por ataque direto da rainha
+            if (queen_attacks & (1u64 << king_square)) != 0 {
+                attack_units += 5; // Ataque direto extremamente perigoso
+            }
+        }
+    }
+    
+    attack_units
+}
+
+/// Obtém zona de perigo 3x3 ao redor do rei
+fn get_king_danger_zone(king_square: u8) -> Bitboard {
+    let king_attacks = crate::moves::king::get_king_attacks_lookup(king_square);
+    let king_bit = 1u64 << king_square;
+    
+    // Zona inclui o rei e todas as casas adjacentes
+    king_attacks | king_bit
+}
+
+/// Identifica casas fracas ao redor do rei
+fn identify_weak_squares_around_king(board: &Board, color: Color, king_square: u8) -> Bitboard {
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let king_zone = get_king_danger_zone(king_square);
+    
+    // Casas fracas são aquelas na zona do rei não defendidas por peões
+    let pawn_defended = get_pawn_defended_squares(our_pawns, color);
+    king_zone & !pawn_defended
+}
+
+/// Calcula casas defendidas por peões
+fn get_pawn_defended_squares(pawns: Bitboard, color: Color) -> Bitboard {
+    match color {
+        Color::White => {
+            ((pawns & 0xFEFEFEFEFEFEFEFE) << 9) | // Diagonal direita
+            ((pawns & 0x7F7F7F7F7F7F7F7F) << 7)   // Diagonal esquerda
+        },
+        Color::Black => {
+            ((pawns & 0xFEFEFEFEFEFEFEFE) >> 7) | // Diagonal direita
+            ((pawns & 0x7F7F7F7F7F7F7F7F) >> 9)   // Diagonal esquerda
+        }
+    }
+}
+
+/// Avaliação avançada de pawn shield
+fn evaluate_pawn_shield_advanced(board: &Board, color: Color, king_square: u8) -> i32 {
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let king_file = king_square % 8;
+    let mut shield_score = 0;
+    
+    // Avalia peões nas 3 colunas próximas ao rei
+    for file_offset in -1i8..=1i8 {
+        let check_file = (king_file as i8 + file_offset) as u8;
+        if check_file < 8 {
+            let file_mask = 0x0101010101010101u64 << check_file;
+            let pawns_on_file = our_pawns & file_mask;
+            
+            if pawns_on_file != 0 {
+                let closest_pawn = if color == Color::White {
+                    pawns_on_file.leading_zeros() as u8 // Peão mais próximo do rei
+                } else {
+                    pawns_on_file.trailing_zeros() as u8
+                };
+                
+                let pawn_rank = closest_pawn / 8;
+                let king_rank = king_square / 8;
+                
+                // Bônus baseado na distância do peão ao rei
+                let distance = (pawn_rank as i32 - king_rank as i32).abs();
+                let shield_bonus = match distance {
+                    0 => 0,  // Peão na mesma fileira (ruim)
+                    1 => 25, // Peão uma fileira à frente (ótimo)
+                    2 => 15, // Peão duas fileiras à frente (bom)
+                    _ => 5,  // Peão muito distante (fraco)
+                };
+                
+                shield_score += shield_bonus;
+                
+                // Bônus extra para peão na coluna do rei
+                if file_offset == 0 {
+                    shield_score += 5;
+                }
+            } else {
+                // Penalidade por ausência de peão na coluna
+                shield_score -= 20;
+            }
+        }
+    }
+    
+    shield_score
+}
+
+/// Avalia perigo de pawn storm inimigo
+fn evaluate_pawn_storm_danger(board: &Board, color: Color, king_square: u8) -> i32 {
+    let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let king_file = king_square % 8;
+    let king_rank = king_square / 8;
+    let mut storm_danger = 0;
+    
+    // Verifica peões inimigos avançados nas colunas próximas
+    for file_offset in -2i8..=2i8 {
+        let check_file = (king_file as i8 + file_offset) as u8;
+        if check_file < 8 {
+            let file_mask = 0x0101010101010101u64 << check_file;
+            let pawns_on_file = enemy_pawns & file_mask;
+            
+            if pawns_on_file != 0 {
+                let closest_pawn = if color == Color::White {
+                    pawns_on_file.trailing_zeros() as u8 // Peão inimigo mais avançado
+                } else {
+                    pawns_on_file.leading_zeros() as u8
+                };
+                
+                let pawn_rank = closest_pawn / 8;
+                let advance_distance = (pawn_rank as i32 - king_rank as i32).abs();
+                
+                // Perigo aumenta quanto mais próximo o peão
+                let storm_penalty = match advance_distance {
+                    0..=1 => 30, // Muito perigoso
+                    2 => 20,     // Perigoso
+                    3 => 10,     // Moderado
+                    _ => 5,      // Leve
+                };
+                
+                storm_danger += storm_penalty;
+                
+                // Penalty extra para peões na coluna do rei
+                if file_offset.abs() <= 1 {
+                    storm_danger += 10;
                 }
             }
         }
     }
+    
+    storm_danger
+}
 
+/// Calcula tropismo (proximidade de peças inimigas)
+fn calculate_piece_tropism(board: &Board, color: Color, king_square: u8) -> i32 {
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let mut tropism = 0;
+    
+    // Analisa todas as peças inimigas
+    let mut pieces = enemy_pieces;
+    while pieces != 0 {
+        let piece_sq = pieces.trailing_zeros() as u8;
+        pieces &= pieces - 1;
+        
+        let distance = calculate_square_distance(king_square, piece_sq);
+        
+        // Penalidade baseada na proximidade e tipo da peça
+        let piece_penalty = if (board.queens & (1u64 << piece_sq)) != 0 {
+            // Rainha próxima é muito perigosa
+            match distance {
+                1..=2 => 25,
+                3..=4 => 15,
+                5..=6 => 8,
+                _ => 0,
+            }
+        } else if (board.rooks & (1u64 << piece_sq)) != 0 {
+            // Torre próxima
+            match distance {
+                1..=2 => 15,
+                3..=4 => 8,
+                _ => 0,
+            }
+        } else if (board.knights & (1u64 << piece_sq)) != 0 {
+            // Cavalo próximo (especialmente perigoso a distância 2-3)
+            match distance {
+                1..=3 => 12,
+                4..=5 => 6,
+                _ => 0,
+            }
+        } else if (board.bishops & (1u64 << piece_sq)) != 0 {
+            // Bispo próximo
+            match distance {
+                1..=3 => 8,
+                4..=5 => 4,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+        
+        tropism += piece_penalty;
+    }
+    
+    tropism
+}
+
+/// Converte attack units em penalidade usando curva não-linear
+fn convert_attack_units_to_penalty(attack_units: i32) -> i32 {
+    // Encontra o threshold apropriado
+    for &(threshold, penalty) in &DANGER_THRESHOLDS {
+        if attack_units >= threshold {
+            continue;
+        } else {
+            // Interpola entre thresholds para curva suave
+            if let Some(&(prev_threshold, prev_penalty)) = DANGER_THRESHOLDS.iter()
+                .rev()
+                .find(|&&(t, _)| t <= attack_units) {
+                
+                if threshold == prev_threshold {
+                    return -prev_penalty;
+                }
+                
+                let ratio = (attack_units - prev_threshold) as f32 / (threshold - prev_threshold) as f32;
+                let interpolated = prev_penalty as f32 + (penalty - prev_penalty) as f32 * ratio;
+                return -interpolated as i32;
+            }
+            break;
+        }
+    }
+    
+    // Para valores extremos acima do último threshold
+    -DANGER_THRESHOLDS.last().unwrap().1
+}
+
+/// Segurança do rei no endgame (simplificada)
+fn evaluate_endgame_king_safety(board: &Board, color: Color) -> i32 {
+    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let king_bb = board.kings & pieces;
+    
+    if king_bb == 0 {
+        return 0;
+    }
+    
+    let king_square = king_bb.trailing_zeros() as u8;
+    let mut score = 0;
+    
+    // No endgame, rei ativo no centro é bom
+    let file = king_square % 8;
+    let rank = king_square / 8;
+    
+    // Centralização
+    let center_distance = ((file as i32 - 3).abs() + (rank as i32 - 3).abs()) / 2;
+    score += (4 - center_distance) * 10;
+    
+    // Mobilidade do rei
+    let king_attacks = crate::moves::king::get_king_attacks_lookup(king_square);
+    let mobility = king_attacks.count_ones() as i32;
+    score += mobility * 5;
+    
     score
 }
 
+/// Calcula distância entre duas casas
+fn calculate_square_distance(sq1: u8, sq2: u8) -> u8 {
+    let file1 = sq1 % 8;
+    let rank1 = sq1 / 8;
+    let file2 = sq2 % 8;
+    let rank2 = sq2 / 8;
+    
+    let file_diff = (file1 as i8 - file2 as i8).abs() as u8;
+    let rank_diff = (rank1 as i8 - rank2 as i8).abs() as u8;
+    
+    file_diff.max(rank_diff)
+}
+
+// === FUNÇÕES AUXILIARES DE COMPATIBILIDADE ===
+
+fn evaluate_pawn_shield(board: &Board, color: Color, _king_square: usize, rank: usize, file: usize) -> i32 {
+    // Implementação simplificada para compatibilidade
+    evaluate_pawn_shield_advanced(board, color, (rank * 8 + file) as u8)
+}
+
 fn evaluate_enemy_attackers(board: &Board, color: Color, king_square: usize) -> i32 {
-    let enemy_color = !color;
-    let mut penalty = 0;
-
-    // Verifica se o rei está atacado
-    if board.is_square_attacked_by(king_square as u8, enemy_color) {
-        let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-
-        // Conta atacantes por tipo (peso diferenciado por perigosidade)
-        let pawn_attackers = count_piece_attackers(board, king_square as u8, enemy_color, board.pawns & enemy_pieces);
-        let knight_attackers = count_piece_attackers(board, king_square as u8, enemy_color, board.knights & enemy_pieces);
-        let bishop_attackers = count_piece_attackers(board, king_square as u8, enemy_color, board.bishops & enemy_pieces);
-        let rook_attackers = count_piece_attackers(board, king_square as u8, enemy_color, board.rooks & enemy_pieces);
-        let queen_attackers = count_piece_attackers(board, king_square as u8, enemy_color, board.queens & enemy_pieces);
-
-        // Penalidades graduadas por tipo
-        penalty += pawn_attackers * 10;    // Peões: baixa ameaça
-        penalty += knight_attackers * 25;  // Cavalos: alta (forks)
-        penalty += bishop_attackers * 20;  // Bispos: média-alta
-        penalty += rook_attackers * 30;    // Torres: alta
-        penalty += queen_attackers * 50;   // Rainha: crítica
-
-        // Bônus por múltiplos atacantes (ataques combinados são perigosos)
-        let total_attackers = pawn_attackers + knight_attackers + bishop_attackers + rook_attackers + queen_attackers;
-        if total_attackers > 1 {
-            penalty += total_attackers * 15; // Ex: 3 atacantes = +45 penalty extra
-        }
-    }
-
-    penalty
-}
-
-fn count_piece_attackers(board: &Board, target_square: u8, attacker_color: Color, piece_bb: Bitboard) -> i32 {
-    let mut count = 0;
-    let mut bb = piece_bb;
-
-    while bb != 0 {
-        let sq = bb.trailing_zeros() as u8;
-        bb &= bb - 1;
-
-        // Verifica se esta peça específica ataca o alvo
-        if piece_attacks_square(board, sq, target_square, attacker_color) {
-            count += 1;
-        }
-    }
-
-    count
-}
-
-fn piece_attacks_square(board: &Board, piece_square: u8, target_square: u8, color: Color) -> bool {
-    // Determina o tipo de peça e verifica ataque
-    let piece_bb = 1u64 << piece_square;
-
-    if (board.pawns & piece_bb) != 0 {
-        // Ataque de peão
-        let pawn_attacks = if color == Color::White {
-            // Brancas: ataques diagonais para cima
-            let left_attack = if piece_square % 8 > 0 { Some(piece_square + 7) } else { None };
-            let right_attack = if piece_square % 8 < 7 { Some(piece_square + 9) } else { None };
-            [left_attack, right_attack]
-        } else {
-            // Pretas: ataques diagonais para baixo
-            let left_attack = if piece_square % 8 > 0 && piece_square >= 9 { Some(piece_square - 9) } else { None };
-            let right_attack = if piece_square % 8 < 7 && piece_square >= 7 { Some(piece_square - 7) } else { None };
-            [left_attack, right_attack]
-        };
-
-        pawn_attacks.iter().any(|&attack| attack == Some(target_square))
-    } else if (board.knights & piece_bb) != 0 {
-        // Ataque de cavalo
-        let knight_attacks = crate::moves::knight::get_knight_attacks_lookup(piece_square);
-        (knight_attacks & (1u64 << target_square)) != 0
-    } else if (board.bishops & piece_bb) != 0 || (board.queens & piece_bb) != 0 {
-        // Ataque de bispo ou rainha (diagonal)
-        let all_pieces = board.white_pieces | board.black_pieces;
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(piece_square, all_pieces);
-        (bishop_attacks & (1u64 << target_square)) != 0
-    } else if (board.rooks & piece_bb) != 0 || (board.queens & piece_bb) != 0 {
-        // Ataque de torre ou rainha (horizontal/vertical)
-        let all_pieces = board.white_pieces | board.black_pieces;
-        let rook_attacks = crate::moves::sliding::get_rook_attacks(piece_square, all_pieces);
-        (rook_attacks & (1u64 << target_square)) != 0
-    } else if (board.kings & piece_bb) != 0 {
-        // Ataque de rei
-        let king_attacks = crate::moves::king::get_king_attacks_lookup(piece_square);
-        (king_attacks & (1u64 << target_square)) != 0
-    } else {
-        false
-    }
+    calculate_attack_units(board, color, king_square as u8) * 5
 }
 
 fn evaluate_tropism(board: &Board, color: Color, king_square: usize) -> i32 {
-    let enemy_color = !color;
-    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    // Casas ao redor do rei (1 e 2 quadrados de distância)
-    let king_attacks = crate::moves::king::get_king_attacks_lookup(king_square as u8);
-
-    // Extensão para 2 quadrados (simples aproximação)
-    let extended_attacks = king_attacks |
-        (king_attacks << 8) | (king_attacks >> 8) |  // Cima/baixo
-        (king_attacks << 1) | (king_attacks >> 1);   // Esquerda/direita
-
-    // Conta peças inimigas próximas
-    let enemy_near_king = (extended_attacks & enemy_pieces).count_ones() as i32;
-
-    // Penalidade por proximidade (peças próximas = pressão)
-    enemy_near_king * 8
+    calculate_piece_tropism(board, color, king_square as u8)
 }
 
-/// Verifica se o rei já fez roque (heurística baseada na posição)
 fn has_castled(board: &Board, color: Color) -> bool {
-    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let king_bb = board.kings & pieces;
-
+    let king_bb = board.kings & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    
     if king_bb == 0 {
         return false;
     }
-
+    
     let king_square = king_bb.trailing_zeros() as u8;
-
+    
     match color {
-        Color::White => {
-            // Rei branco fez roque se está na casa 6 (g1) ou 2 (c1)
-            king_square == 6 || king_square == 2
-        },
-        Color::Black => {
-            // Rei preto fez roque se está na casa 62 (g8) ou 58 (c8)
-            king_square == 62 || king_square == 58
-        }
+        Color::White => king_square == 2 || king_square == 6, // c1 ou g1
+        Color::Black => king_square == 58 || king_square == 62, // c8 ou g8
     }
 }
 
-/// Verifica se ainda pode fazer roque (heurística)
 fn can_castle(board: &Board, color: Color) -> bool {
-    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let king_bb = board.kings & pieces;
-
-    if king_bb == 0 {
-        return false;
-    }
-
-    let king_square = king_bb.trailing_zeros() as u8;
-
     match color {
-        Color::White => {
-            // Rei branco pode fazer roque se está na casa inicial (4 = e1)
-            if king_square != 4 {
-                return false;
-            }
-
-            // Verifica se as torres estão nas posições iniciais
-            let rooks = board.rooks & pieces;
-            let king_rook = (rooks & (1u64 << 7)) != 0; // h1
-            let queen_rook = (rooks & (1u64 << 0)) != 0; // a1
-
-            king_rook || queen_rook
-        },
-        Color::Black => {
-            // Rei preto pode fazer roque se está na casa inicial (60 = e8)
-            if king_square != 60 {
-                return false;
-            }
-
-            // Verifica se as torres estão nas posições iniciais
-            let rooks = board.rooks & pieces;
-            let king_rook = (rooks & (1u64 << 63)) != 0; // h8
-            let queen_rook = (rooks & (1u64 << 56)) != 0; // a8
-
-            king_rook || queen_rook
-        }
+        Color::White => (board.castling_rights & 0x03) != 0,
+        Color::Black => (board.castling_rights & 0x0C) != 0,
     }
 }

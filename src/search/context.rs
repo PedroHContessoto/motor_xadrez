@@ -206,6 +206,16 @@ impl SearchContext {
             .join(" ")
     }
 
+    /// Obtém killer move específico (0 = primeiro, 1 = segundo)
+    pub fn get_killer_move(&self, depth: u8, index: usize) -> Option<Move> {
+        let depth_idx = depth as usize;
+        if depth_idx < 64 && index < 2 {
+            self.killer_moves[depth_idx][index]
+        } else {
+            None
+        }
+    }
+
     /// Obtém idade do killer move (0 = mais recente)
     pub fn get_killer_age(&self, mv: Move, depth: u8) -> i32 {
         let depth_idx = depth as usize;

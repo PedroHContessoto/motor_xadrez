@@ -11,11 +11,24 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="arrumando arrumando busca e inteligencia">
+    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_18_07_2025_14_41_[Changes]/shelved.patch" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_18_07_2025_14_41__Changes_.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/find_best.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/find_best.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/board.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/board.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/king_safety.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/king_safety.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/moves/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/moves/queen.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/queen.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/moves/sliding.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/sliding.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/context.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/context.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/mate_detection.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/mate_detection.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/ordering.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/ordering.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/quiescence.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/quiescence.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/see.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/see.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/types.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -34,7 +47,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="motor_simples_1800" />
+        <entry key="$PROJECT_DIR$" value="pelanca2" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -68,7 +81,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "pelanca2",
+    "git-widget-placeholder": "pelanca3",
     "ignore.virus.scanning.warn.message": "true",
     "last_opened_file_path": "D:/motor_xadrez",
     "node.js.detected.package.eslint": "true",
@@ -199,7 +212,31 @@
       <option name="project" value="LOCAL" />
       <updated>1753472874966</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753496310776</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1753496310776</updated>
+    </task>
+    <task id="LOCAL-00009" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753496753370</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1753496753370</updated>
+    </task>
+    <task id="LOCAL-00010" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753496818106</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1753496818106</updated>
+    </task>
+    <option name="localTasksCounter" value="11" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -210,6 +247,7 @@
     <MESSAGE value="primeiro modelo funcional" />
     <MESSAGE value="arrumando pensamento no arena" />
     <MESSAGE value="arrumando arrumando busca e inteligencia" />
-    <option name="LAST_COMMIT_MESSAGE" value="arrumando arrumando busca e inteligencia" />
+    <MESSAGE value="add mate" />
+    <option name="LAST_COMMIT_MESSAGE" value="add mate" />
   </component>
 </project>

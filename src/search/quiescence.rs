@@ -105,7 +105,7 @@ fn quiescence_search_with_ply(
 
         // Faz movimento e busca recursivamente
         let mut temp_board = *board;
-        temp_board.make_move(mv);
+        let _undo_info = temp_board.make_move_fast(mv);
 
         let score = -quiescence_search_with_ply(&temp_board, -beta, -alpha, ply + 1, max_ply, tt, context);
 

@@ -194,7 +194,7 @@ impl MateDetector {
 
         for mv in moves {
             let mut new_board = *board;
-            new_board.make_move(mv);
+            let _undo_info = new_board.make_move_fast(mv);
 
             let mut child_pv = Vec::new();
             let score = -self.mate_search(&new_board, depth - 1, -beta, -alpha, &mut child_pv, tt);
@@ -239,7 +239,7 @@ impl MateDetector {
         
         for mv in moves {
             let mut test_board = *board;
-            test_board.make_move(mv);
+            let _undo_info = test_board.make_move_fast(mv);
             self.nodes_searched += 1;
             if test_board.is_checkmate() {
                 return Some(mv);
@@ -271,7 +271,7 @@ impl MateDetector {
         
         // Prioriza xeques
         let mut test_board = *board;
-        test_board.make_move(mv);
+        let _undo_info = test_board.make_move_fast(mv);
         if test_board.is_king_in_check(!board.to_move) {
             score += 1000;
         }

@@ -6,3 +6,4 @@ pub mod knight;
 pub mod sliding;
 pub mod queen;
 pub mod king;
+pub mod magic_bitboards;

@@ -124,7 +124,7 @@ fn pvs_search_internal(
             
         for mv in probcut_moves {
             let mut temp_board = *board;
-            temp_board.make_move(mv);
+            let _undo_info = temp_board.make_move_fast(mv);
             let probcut_score = -pvs_search_internal(
                 &temp_board, depth - 4, -probcut_beta, -probcut_beta + 1, 
                 tt, context, start_time, max_time_ms, false, ply + 1
@@ -190,7 +190,7 @@ fn pvs_search_internal(
             if i >= moves_searched { break; }
 
             let mut temp_board = *board;
-            temp_board.make_move(*mv);
+            let _undo_info = temp_board.make_move_fast(*mv);
 
             let score = -pvs_search_internal(
                 &temp_board, depth - 3, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false, ply + 1
@@ -207,7 +207,7 @@ fn pvs_search_internal(
 
     for mv in &ordered_moves {
         let mut temp_board = *board;
-        temp_board.make_move(*mv);
+        let _undo_info = temp_board.make_move_fast(*mv);
 
         context.push_move(*mv);
 
@@ -269,8 +269,8 @@ fn pvs_search_internal(
                 // === AJUSTES ADAPTATIVOS AVANÇADOS ===
                 
                 // 1. Histórico de movimentos (mais refinado)
-                if let Some(piece) = board.get_piece_on_square(mv.from) {
-                    let history = context.get_history_score(*mv, piece);
+                if let Some(piece_kind) = board.get_piece_on_square(mv.from) {
+                    let history = context.get_history_score(*mv, piece_kind);
                     
                     if history > 2000 {
                         base_reduction = base_reduction.saturating_sub(2); // Movimento muito bom
@@ -293,14 +293,10 @@ fn pvs_search_internal(
                 }
                 
                 // 3. Ajuste para peças específicas (cavalos e bispos em posições táticas)
-                if let Some(piece) = board.get_piece_on_square(mv.from) {
-                    match piece.kind {
-                        crate::types::PieceKind::Knight | crate::types::PieceKind::Bishop => {
-                            if tactical_level >= 2 {
-                                base_reduction = base_reduction.saturating_sub(1);
-                            }
-                        },
-                        _ => {}
+                let from_sq_bit = 1u64 << mv.from;
+                if (board.knights & from_sq_bit) != 0 || (board.bishops & from_sq_bit) != 0 {
+                    if tactical_level >= 2 {
+                        base_reduction = base_reduction.saturating_sub(1);
                     }
                 }
                 
@@ -382,7 +378,7 @@ fn has_non_pawn_material(board: &Board) -> bool {
 fn gives_check_fast(board: &Board, mv: Move) -> bool {
     // Implementação simplificada - pode ser melhorada
     let mut temp_board = *board;
-    temp_board.make_move(mv);
+    let _undo_info = temp_board.make_move_fast(mv);
     temp_board.is_king_in_check(!board.to_move)
 }
 
@@ -403,16 +399,104 @@ fn is_killer_or_counter_move(mv: Move, context: &SearchContext, depth: u8) -> bo
 
 /// Threshold para Late Move Count Pruning
 fn late_move_count_threshold(depth: u8) -> usize {
+    // Threshold mais agressivo para late moves
     match depth {
-        1 => 6,
-        2 => 8,
-        3 => 12,
-        4 => 16,
-        5 => 20,
-        6 => 24,
-        7 => 28,
-        _ => 32,
+        1 => 4,   // Era 6, agora 4 (mais agressivo)
+        2 => 6,   // Era 8, agora 6
+        3 => 8,   // Era 12, agora 8
+        4 => 12,  // Era 16, agora 12
+        5 => 16,  // Era 20, agora 16
+        6 => 20,  // Era 24, agora 20
+        7 => 24,  // Era 28, agora 24
+        _ => 28,  // Era 32, agora 28
     }
+}
+
+// ============================================================================
+// FUNÇÕES AUXILIARES PARA LMR AVANÇADO
+// ============================================================================
+
+/// Calcula tabela LMR pré-computada (const function)
+const fn calculate_lmr_table() -> [[u8; 64]; 64] {
+    let mut table = [[0u8; 64]; 64];
+    let mut depth = 1;
+    
+    while depth < 64 {
+        let mut moves = 1;
+        while moves < 64 {
+            // Fórmula agressiva baseada em engines fortes
+            let base = if depth >= 6 && moves >= 12 {
+                3
+            } else if depth >= 4 && moves >= 8 {
+                2  
+            } else if depth >= 3 && moves >= 4 {
+                1
+            } else {
+                0
+            };
+            
+            // Redução adicional para movimentos muito tardios
+            let late_penalty = if moves >= 32 {
+                2
+            } else if moves >= 16 {
+                1
+            } else {
+                0
+            };
+            
+            let max_reduction = if depth > 1 { depth - 1 } else { 1 };
+            let total_reduction = base + late_penalty;
+            table[depth][moves] = if total_reduction > max_reduction as u8 { max_reduction as u8 } else { total_reduction };
+            moves += 1;
+        }
+        depth += 1;
+    }
+    
+    table
+}
+
+/// Avalia complexidade tática da posição (0-3)
+fn evaluate_tactical_complexity(board: &Board) -> u8 {
+    let mut complexity = 0u8;
+    
+    // 1. Verifica xeques
+    if board.is_king_in_check(board.to_move) {
+        complexity += 2;
+    }
+    
+    // 2. Peças atacadas
+    let our_pieces = if board.to_move == crate::types::Color::White { 
+        board.white_pieces 
+    } else { 
+        board.black_pieces 
+    };
+    
+    let valuable_pieces = (board.queens | board.rooks | board.bishops | board.knights) & our_pieces;
+    let mut attacked_valuable = 0;
+    let mut bb = valuable_pieces;
+    
+    while bb != 0 {
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+        
+        if board.is_square_attacked_by(sq, !board.to_move) {
+            attacked_valuable += 1;
+        }
+    }
+    
+    if attacked_valuable >= 2 {
+        complexity += 2;
+    } else if attacked_valuable >= 1 {
+        complexity += 1;
+    }
+    
+    // 3. Densidade de peças (posições congestionadas são mais táticas)
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    if total_pieces >= 28 {
+        complexity += 1;
+    }
+    
+    complexity.min(3)
 }
 
 /// Detecta posições táticas que precisam de busca mais profunda
