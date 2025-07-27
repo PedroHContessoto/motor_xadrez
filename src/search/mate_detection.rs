@@ -9,7 +9,7 @@ use std::time::Instant;
 
 // Constantes para detecção de mate
 const MATE_VALUE: i32 = 100000;
-const MAX_MATE_DISTANCE: u8 = 15; // Máximo de movimentos para buscar mate
+const MAX_MATE_DISTANCE: u8 = 30; // Máximo de movimentos para buscar mate
 const MATE_SEARCH_TIME_LIMIT: u128 = 2000; // 2 segundos em milissegundos
 
 /// Estrutura para informações de mate detectado com análise de endgame

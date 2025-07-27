@@ -1,9 +1,26 @@
 // Avaliação de ameaças - peças penduradas, ataques táticos
 use crate::{board::Board, types::{Color, PieceKind, Move}};
 use super::material::MATERIAL_VALUES;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
-/// Avalia ameaças mútuas entre as cores - Estrutura modular aprimorada
+// Cache para threats evaluation
+lazy_static::lazy_static! {
+    static ref THREATS_CACHE: Mutex<HashMap<(u64, Color), i32>> = 
+        Mutex::new(HashMap::with_capacity(10000));
+}
+
+/// Avalia ameaças mútuas entre as cores - Estrutura modular aprimorada COM CACHE
 pub fn evaluate_threats(board: &Board, color: Color) -> i32 {
+    let cache_key = (board.zobrist_hash, color);
+    
+    // Verifica cache primeiro
+    if let Ok(cache) = THREATS_CACHE.try_lock() {
+        if let Some(&cached_result) = (*cache).get(&cache_key) {
+            return cached_result;
+        }
+    }
+    
     let mut score = 0;
 
     // 1. Penalidades por peças penduradas
@@ -32,7 +49,17 @@ pub fn evaluate_threats(board: &Board, color: Color) -> i32 {
     // 8. Compound threats (múltiplas ameaças simultâneas)
     score += evaluate_compound_threats(board, color);
 
-    score.clamp(-600, 600) // Aumentado para acomodar novas funcionalidades
+    let final_score = score.clamp(-600, 600);
+    
+    // Armazena no cache
+    if let Ok(mut cache) = THREATS_CACHE.try_lock() {
+        if (*cache).len() >= 10000 {
+            (*cache).clear(); // LRU simples: limpa quando cheio
+        }
+        (*cache).insert(cache_key, final_score);
+    }
+    
+    final_score
 }
 
 /// Penaliza peças próprias atacadas (peças penduradas)

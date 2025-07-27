@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 rayon = "1.8"
 lazy_static = "1.4"
+num_cpus = "1.16"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

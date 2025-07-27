@@ -1920,9 +1920,9 @@ impl MetaEvaluator {
         
         let king_sq = our_king.trailing_zeros() as u8;
         
-        // Rei deve estar centralizado no final
+        // Rei deve estar centralizado no final - valor aumentado para finais
         let centrality = self.calculate_centrality(king_sq);
-        centrality * 3
+        centrality * 15  // Aumentado de 3 para 15 conforme análise
     }
 
     /// Avalia peões passados no final
@@ -2507,10 +2507,38 @@ pub fn evaluate_position_vulnerabilities(board: &Board, color: Color) -> MetaEva
     evaluator.analyze_position(board, color)
 }
 
-/// Interface simplificada que retorna apenas o score
+/// Interface simplificada que retorna apenas o score COM CACHE
 pub fn meta_evaluate_position(board: &Board, color: Color) -> i32 {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    
+    lazy_static::lazy_static! {
+        static ref META_CACHE: Mutex<HashMap<(u64, Color), i32>> = 
+            Mutex::new(HashMap::with_capacity(5000));
+    }
+    
+    let cache_key = (board.zobrist_hash, color);
+    
+    // Verifica cache primeiro
+    if let Ok(cache) = META_CACHE.try_lock() {
+        if let Some(&cached_result) = (*cache).get(&cache_key) {
+            return cached_result;
+        }
+    }
+    
+    // Cálculo original completo (mantendo toda funcionalidade)
     let result = evaluate_position_vulnerabilities(board, color);
-    result.meta_score
+    let meta_score = result.meta_score;
+    
+    // Armazena no cache
+    if let Ok(mut cache) = META_CACHE.try_lock() {
+        if (*cache).len() >= 5000 {
+            (*cache).clear(); // LRU simples: limpa quando cheio
+        }
+        (*cache).insert(cache_key, meta_score);
+    }
+    
+    meta_score
 }
 
 /// Interface para análise rápida de vulnerabilidades críticas

@@ -6,6 +6,7 @@ use motor_xadrez::evaluation;
 use motor_xadrez::search;
 use motor_xadrez::transposition::TranspositionTable;
 use motor_xadrez::opening_book::{OpeningBook, is_in_opening_phase};
+use motor_xadrez::profiling::PROFILER;
 use std::io;
 use std::time::Instant;
 
@@ -295,6 +296,16 @@ fn main() {
                 "quit" => {
                     break; // Sai do loop e termina o programa
                 }
+                // Comandos de profiling personalizados
+                "profile" => {
+                    handle_profile_command(&commands);
+                }
+                "benchmark" => {
+                    handle_benchmark_command(&board);
+                }
+                "cache" => {
+                    handle_cache_command(&commands);
+                }
                 _ => {
                     // Ignora comandos desconhecidos
                 }
@@ -487,4 +498,126 @@ fn parse_move(board: &Board, move_str: &str) -> Option<Move> {
         }
     }
     None
+}
+
+/// Manipula comandos de profiling personalizados
+fn handle_profile_command(commands: &[&str]) {
+    if commands.len() < 2 {
+        println!("info string Uso: profile [report|clear|save <filename>|enable|disable]");
+        return;
+    }
+
+    match commands[1] {
+        "report" => {
+            println!("info string Gerando relatório de performance...");
+            let report = PROFILER.generate_report();
+            // Imprime o relatório linha por linha como info string
+            for line in report.lines() {
+                if !line.trim().is_empty() {
+                    println!("info string {}", line);
+                }
+            }
+        },
+        "clear" => {
+            PROFILER.clear();
+            println!("info string Estatísticas de profiling limpas");
+        },
+        "save" => {
+            if commands.len() >= 3 {
+                let filename = commands[2];
+                match PROFILER.save_report(filename) {
+                    Ok(()) => println!("info string Relatório salvo em: {}", filename),
+                    Err(e) => println!("info string Erro ao salvar relatório: {}", e),
+                }
+            } else {
+                println!("info string Uso: profile save <filename>");
+            }
+        },
+        "enable" => {
+            // Note: O profiler não tem método enable/disable público no momento
+            println!("info string Profiling sempre ativo no momento");
+        },
+        "disable" => {
+            println!("info string Profiling sempre ativo no momento");
+        },
+        _ => {
+            println!("info string Comando de profiling desconhecido: {}", commands[1]);
+        }
+    }
+}
+
+/// Executa benchmarks para descobrir gargalos
+fn handle_benchmark_command(board: &Board) {
+    println!("info string Iniciando benchmark para descobrir gargalos...");
+    
+    // Limpa estatísticas anteriores
+    PROFILER.clear();
+    
+    // Benchmark 1: Geração de movimentos
+    let iterations = 1000;
+    println!("info string Benchmark: Geração de movimentos ({} iterações)", iterations);
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _moves = board.generate_legal_moves();
+    }
+    let move_gen_time = start.elapsed();
+    println!("info string   Geração de movimentos: {}μs por chamada", 
+             move_gen_time.as_micros() / iterations);
+    
+    // Benchmark 2: Avaliação de posição
+    println!("info string Benchmark: Avaliação de posição ({} iterações)", iterations);
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _eval = evaluation::evaluate(board);
+    }
+    let eval_time = start.elapsed();
+    println!("info string   Avaliação: {}μs por chamada", 
+             eval_time.as_micros() / iterations);
+    
+    // Benchmark 3: Busca rápida
+    let mut tt = TranspositionTable::new(64); // 64 MB para benchmark
+    println!("info string Benchmark: Busca (profundidade 4)");
+    let start = Instant::now();
+    let _result = search::find_best_move_with_time(board, 4, 1000, &mut tt);
+    let search_time = start.elapsed();
+    println!("info string   Busca (depth 4): {}ms", search_time.as_millis());
+    
+    // Gera relatório final
+    println!("info string === RELATÓRIO DE GARGALOS ===");
+    let report = PROFILER.generate_report();
+    
+    // Extrai e mostra apenas as principais métricas
+    for line in report.lines() {
+        if line.contains("PRINCIPAIS GARGALOS") || 
+           line.contains("FUNÇÕES INEFICIENTES") ||
+           line.contains("💡") || 
+           line.contains("⚠️") ||
+           (line.contains("ms") && line.contains("│")) {
+            println!("info string {}", line);
+        }
+    }
+    
+    println!("info string Benchmark concluído. Use 'profile save benchmark.txt' para salvar detalhes.");
+}
+
+/// Manipula comandos de cache de avaliação
+fn handle_cache_command(commands: &[&str]) {
+    if commands.len() < 2 {
+        println!("info string Uso: cache [stats|clear]");
+        return;
+    }
+
+    match commands[1] {
+        "stats" => {
+            let stats = motor_xadrez::evaluation::cache::get_cache_stats();
+            println!("info string {}", stats);
+        },
+        "clear" => {
+            motor_xadrez::evaluation::cache::clear_evaluation_cache();
+            println!("info string Cache de avaliação limpo");
+        },
+        _ => {
+            println!("info string Comando de cache desconhecido: {}", commands[1]);
+        }
+    }
 }

@@ -4,6 +4,15 @@
 use super::types::*;
 use crate::moves;
 use crate::zobrist::{ZOBRIST_KEYS, piece_to_index, color_to_index};
+use crate::{profile, count};
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+// Cache para legal moves generation
+lazy_static::lazy_static! {
+    static ref LEGAL_MOVES_CACHE: Mutex<HashMap<u64, Vec<Move>>> = 
+        Mutex::new(HashMap::with_capacity(3000));
+}
 
 // A struct principal do tabuleiro, usando Bitboards.
 #[derive(Debug, Clone, Copy)]
@@ -619,12 +628,68 @@ impl Board {
         self.is_checkmate() || self.is_stalemate() || self.is_draw_by_insufficient_material() || self.is_draw_by_50_moves()
     }
 
-    /// Gera apenas movimentos legais (filtra movimentos que deixam o rei em xeque)
+    /// Gera apenas capturas e checks (para quiescence search)
+    pub fn generate_captures_and_checks(&self) -> Vec<Move> {
+        let all_moves = self.generate_all_moves();
+        let mut tactical_moves = Vec::new();
+        
+        for mv in all_moves {
+            if self.is_capture(mv) {
+                // Verifica se é movimento legal (não deixa rei em xeque)
+                if self.is_legal_move(mv) {
+                    tactical_moves.push(mv);
+                }
+            } else {
+                // Verifica se dá xeque
+                let mut test_board = *self;
+                let _undo = test_board.make_move_fast(mv);
+                if test_board.is_king_in_check(!self.to_move) {
+                    // É check e movimento legal
+                    if self.is_legal_move(mv) {
+                        tactical_moves.push(mv);
+                    }
+                }
+            }
+        }
+        
+        tactical_moves
+    }
+
+    /// Gera apenas movimentos legais (filtra movimentos que deixam o rei em xeque) COM CACHE
     pub fn generate_legal_moves(&self) -> Vec<Move> {
-        let pseudo_legal = self.generate_all_moves();
-        pseudo_legal.into_iter()
-            .filter(|&mv| self.is_legal_move_fast(mv))
-            .collect()
+        let _timer = crate::profiling::PROFILER.start_timer("generate_legal_moves");
+        count!("legal_move_calls");
+        
+        // Verifica cache primeiro
+        if let Ok(cache) = LEGAL_MOVES_CACHE.try_lock() {
+            if let Some(cached_moves) = cache.get(&self.zobrist_hash) {
+                count!("legal_moves_cache_hits");
+                return cached_moves.clone();
+            }
+        }
+        count!("legal_moves_cache_misses");
+        
+        let pseudo_legal = profile!("generate_pseudo_legal", {
+            self.generate_all_moves()
+        });
+        count!("pseudo_legal_moves", pseudo_legal.len() as u64);
+        
+        let legal_moves: Vec<Move> = profile!("filter_legal_moves", {
+            pseudo_legal.into_iter()
+                .filter(|&mv| self.is_legal_move_fast(mv))
+                .collect()
+        });
+        count!("final_legal_moves", legal_moves.len() as u64);
+        
+        // Armazena no cache
+        if let Ok(mut cache) = LEGAL_MOVES_CACHE.try_lock() {
+            if cache.len() >= 3000 {
+                cache.clear(); // LRU simples: limpa quando cheio
+            }
+            cache.insert(self.zobrist_hash, legal_moves.clone());
+        }
+        
+        legal_moves
     }
 
     /// Verifica se um movimento é legal (versão otimizada)

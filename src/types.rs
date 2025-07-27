@@ -6,7 +6,7 @@
 pub type Bitboard = u64;
 
 // Enum para representar a cor de uma peça ou de um jogador.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Color {
     White,
     Black,

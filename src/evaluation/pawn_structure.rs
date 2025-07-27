@@ -2,6 +2,14 @@
 use crate::{board::Board, types::{Color, Bitboard}};
 use super::material::MATERIAL_VALUES;
 use super::game_phase::{interpolate_phase_i32, GamePhaseInfo, detect_game_phase_advanced};
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+// Cache para pawn structure evaluation
+lazy_static::lazy_static! {
+    static ref PAWN_STRUCTURE_CACHE: Mutex<HashMap<(u64, Color), i32>> = 
+        Mutex::new(HashMap::with_capacity(4000));
+}
 
 // Constantes avançadas para avaliação de peões
 const PASSED_PAWN_BONUS: [i32; 8] = [0, 15, 25, 40, 65, 100, 150, 200];
@@ -175,8 +183,32 @@ pub fn evaluate_pawn_structure_advanced(board: &Board, color: Color) -> Advanced
 
 /// Função de compatibilidade com o sistema antigo
 pub fn evaluate_pawn_structure(board: &Board, color: Color) -> i32 {
+    // Cria uma hash apenas das posições dos peões para cache eficiente
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let pawn_hash = our_pawns ^ (enemy_pawns << 1); // Hash simples das posições dos peões
+    let cache_key = (pawn_hash, color);
+    
+    // Verifica cache primeiro
+    if let Ok(cache) = PAWN_STRUCTURE_CACHE.try_lock() {
+        if let Some(&cached_result) = (*cache).get(&cache_key) {
+            return cached_result;
+        }
+    }
+    
+    // Cálculo original completo
     let analysis = evaluate_pawn_structure_advanced(board, color);
-    analysis.total_structural_score + analysis.total_dynamic_score
+    let pawn_score = analysis.total_structural_score + analysis.total_dynamic_score;
+    
+    // Armazena no cache
+    if let Ok(mut cache) = PAWN_STRUCTURE_CACHE.try_lock() {
+        if (*cache).len() >= 4000 {
+            (*cache).clear(); // LRU simples: limpa quando cheio
+        }
+        (*cache).insert(cache_key, pawn_score);
+    }
+    
+    pawn_score
 }
 
 impl AdvancedPawnAnalysis {

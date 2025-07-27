@@ -1,6 +1,14 @@
 // Sistema avançado de segurança do rei com Attack Units
-use crate::{board::Board, types::{Color, Bitboard, PieceKind}};
+use crate::{board::Board, types::{Color, Bitboard}};
 use super::game_phase::GamePhase;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+// Cache para king safety evaluation
+lazy_static::lazy_static! {
+    static ref KING_SAFETY_CACHE: Mutex<HashMap<(u64, Color, u8), i32>> = 
+        Mutex::new(HashMap::with_capacity(6000));
+}
 
 // === CONSTANTES PARA ATTACK UNITS SYSTEM ===
 const CENTRAL_SQUARES: Bitboard = (1u64 << 27) | (1u64 << 28) | (1u64 << 35) | (1u64 << 36);
@@ -43,35 +51,64 @@ pub struct KingSafetyAnalysis {
     pub total_danger: i32,
 }
 
-/// Avalia a segurança do rei com sistema avançado de Attack Units
+/// Avalia a segurança do rei com sistema avançado de Attack Units COM CACHE
 pub fn evaluate_king_safety(board: &Board, color: Color, game_phase: &GamePhase) -> i32 {
-    // Segurança menos crítica no endgame puro
-    if matches!(game_phase, GamePhase::Endgame | GamePhase::PureEndgame) {
-        return evaluate_endgame_king_safety(board, color);
-    }
-
-    let analysis = analyze_king_safety_comprehensive(board, color, game_phase);
-    
-    // Conversão de attack units para penalidade usando curva não-linear
-    let danger_penalty = convert_attack_units_to_penalty(analysis.attack_units);
-    
-    // Score final combinando todos os fatores
-    let total_score = analysis.pawn_shield_score 
-                     - danger_penalty 
-                     - analysis.storm_danger 
-                     - analysis.tropism_penalty;
-    
-    // Aplica fator de escala baseado na fase do jogo
-    let phase_factor = match game_phase {
-        GamePhase::Opening => 0.7,           // Menos crítico na abertura
-        GamePhase::EarlyMiddlegame => 1.0,   // Muito crítico
-        GamePhase::Middlegame => 1.2,        // Máxima criticidade
-        GamePhase::LateMiddlegame => 1.0,    // Ainda crítico
-        GamePhase::EarlyEndgame => 0.5,      // Menos crítico
-        _ => 0.2,                            // Mínimo no endgame
+    let game_phase_id = match game_phase {
+        GamePhase::Opening => 1,
+        GamePhase::EarlyMiddlegame => 2,
+        GamePhase::Middlegame => 3,
+        GamePhase::LateMiddlegame => 4,
+        GamePhase::EarlyEndgame => 5,
+        GamePhase::Endgame => 6,
+        GamePhase::PureEndgame => 7,
     };
     
-    (total_score as f32 * phase_factor) as i32
+    let cache_key = (board.zobrist_hash, color, game_phase_id);
+    
+    // Verifica cache primeiro
+    if let Ok(cache) = KING_SAFETY_CACHE.try_lock() {
+        if let Some(&cached_result) = (*cache).get(&cache_key) {
+            return cached_result;
+        }
+    }
+    
+    // Cálculo original completo
+    let safety_score = if matches!(game_phase, GamePhase::Endgame | GamePhase::PureEndgame) {
+        evaluate_endgame_king_safety(board, color)
+    } else {
+        let analysis = analyze_king_safety_comprehensive(board, color, game_phase);
+        
+        // Conversão de attack units para penalidade usando curva não-linear
+        let danger_penalty = convert_attack_units_to_penalty(analysis.attack_units);
+        
+        // Score final combinando todos os fatores
+        let total_score = analysis.pawn_shield_score 
+                         - danger_penalty 
+                         - analysis.storm_danger 
+                         - analysis.tropism_penalty;
+        
+        // Aplica fator de escala baseado na fase do jogo
+        let phase_factor = match game_phase {
+            GamePhase::Opening => 0.7,           // Menos crítico na abertura
+            GamePhase::EarlyMiddlegame => 1.0,   // Muito crítico
+            GamePhase::Middlegame => 1.2,        // Máxima criticidade
+            GamePhase::LateMiddlegame => 1.0,    // Ainda crítico
+            GamePhase::EarlyEndgame => 0.5,      // Menos crítico
+            _ => 0.2,                            // Mínimo no endgame
+        };
+        
+        (total_score as f32 * phase_factor) as i32
+    };
+    
+    // Armazena no cache
+    if let Ok(mut cache) = KING_SAFETY_CACHE.try_lock() {
+        if (*cache).len() >= 6000 {
+            (*cache).clear(); // LRU simples: limpa quando cheio
+        }
+        (*cache).insert(cache_key, safety_score);
+    }
+    
+    safety_score
 }
 
 /// Análise comprehensive de segurança do rei

@@ -2,6 +2,14 @@
 use crate::{board::Board, types::{Color, Bitboard}};
 use super::game_phase::{GamePhaseInfo, detect_game_phase_advanced, interpolate_phase_i32};
 use super::utils as eval_utils;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+// Cache para mobility evaluation
+lazy_static::lazy_static! {
+    static ref MOBILITY_CACHE: Mutex<HashMap<(u64, Color), i32>> = 
+        Mutex::new(HashMap::with_capacity(8000));
+}
 
 pub mod pawn_mobility;
 pub mod knight_mobility;
@@ -144,7 +152,27 @@ impl MobilityContext {
 
 /// Função principal de avaliação de mobilidade (interface padrão)
 pub fn evaluate_mobility(board: &Board, color: Color) -> i32 {
-    evaluate_mobility_modular(board, color)
+    let cache_key = (board.zobrist_hash, color);
+    
+    // Verifica cache primeiro
+    if let Ok(cache) = MOBILITY_CACHE.try_lock() {
+        if let Some(&cached_result) = (*cache).get(&cache_key) {
+            return cached_result;
+        }
+    }
+    
+    // Cálculo original completo
+    let mobility_score = evaluate_mobility_modular(board, color);
+    
+    // Armazena no cache
+    if let Ok(mut cache) = MOBILITY_CACHE.try_lock() {
+        if (*cache).len() >= 8000 {
+            (*cache).clear(); // LRU simples: limpa quando cheio
+        }
+        (*cache).insert(cache_key, mobility_score);
+    }
+    
+    mobility_score
 }
 
 /// Função principal de avaliação de mobilidade modular

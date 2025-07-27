@@ -4,7 +4,7 @@ use super::{MobilityContext, GamePhase, utils::*};
 use crate::evaluation::utils as eval_utils;
 
 const KING_SAFETY_MULTIPLIER: i32 = 8;
-const KING_ACTIVITY_MULTIPLIER: i32 = 12;
+const KING_ACTIVITY_MULTIPLIER: i32 = 25; // Aumentado de 12 para 25 conforme análise
 const OPPOSITION_BONUS: i32 = 200;
 const DISTANT_OPPOSITION_BONUS: i32 = 150;
 const SHOULDER_CHARGE_BONUS: i32 = 180;

@@ -158,44 +158,91 @@ fn score_promotion(promotion: PieceKind) -> i32 {
     }
 }
 
-/// Heurísticas posicionais avançadas
+/// Heurísticas posicionais avançadas e modernas
 fn score_positional_heuristics(mv: Move, board: &Board, depth: u8) -> i32 {
     let mut score = 0;
     
-    // Desenvolvimento na abertura
+    // === DESENVOLVIMENTO E ABERTURA ===
     if is_development_move(board, mv) {
-        score += 25000;
-    }
-    
-    // Controle de centro
-    if controls_center(mv) {
-        score += 15000;
-    }
-    
-    // Movimentos defensivos
-    if is_defensive_move(board, mv) {
-        score += 10000;
-    }
-    
-    // Checks
-    if gives_check_heuristic(board, mv) {
-        score += 8000;
-        if is_discovered_check(board, mv) {
-            score += 5000; // Discovered checks são perigosos
+        let development_bonus = if depth <= 4 { 30000 } else { 15000 };
+        score += development_bonus;
+        
+        // Bônus extra para desenvolvimento para centro
+        if controls_center(mv) {
+            score += 10000;
         }
     }
     
-    // Penalizações
+    // === CONTROLE DE CENTRO REFINADO ===
+    let center_score = evaluate_center_control(mv, board);
+    score += center_score;
+    
+    // === MOVIMENTOS DEFENSIVOS APRIMORADOS ===
+    if is_defensive_move(board, mv) {
+        let defensive_urgency = evaluate_defensive_urgency(board, mv);
+        score += 8000 + defensive_urgency;
+    }
+    
+    // === CHECKS E AMEAÇAS ===
+    if gives_check_heuristic(board, mv) {
+        score += 12000; // Aumentado de 8000
+        
+        // Discovered checks são especialmente perigosos
+        if is_discovered_check(board, mv) {
+            score += 8000; // Aumentado de 5000
+        }
+        
+        // Checks que levam a mate threats
+        if could_lead_to_mate_threat(board, mv) {
+            score += 15000;
+        }
+    }
+    
+    // === AMEAÇAS TÁTICAS ===
+    if creates_tactical_threat(board, mv) {
+        score += 6000;
+    }
+    
+    // === MOBILIDADE DE PEÇAS ===
+    let mobility_bonus = evaluate_piece_mobility_gain(board, mv);
+    score += mobility_bonus;
+    
+    // === ESTRUTURA DE PEÕES ===
+    if improves_pawn_structure(board, mv) {
+        score += 4000;
+    }
+    
+    // === PENALIZAÇÕES ===
     if weakens_king_safety(board, mv) {
-        score -= 20000;
+        let safety_penalty = evaluate_king_safety_impact(board, mv);
+        score -= safety_penalty;
     }
     
-    // Ajuste por profundidade (movimentos posicionais menos importantes em profundidade baixa)
-    if depth <= 3 {
-        score = score / 2;
+    // Penaliza movimentos que isolam peças próprias
+    if isolates_own_piece(board, mv) {
+        score -= 8000;
     }
     
-    score
+    // === AJUSTES POR PROFUNDIDADE E FASE DO JOGO ===
+    let depth_factor = if depth <= 3 {
+        0.6 // Reduz importância posicional em busca tática
+    } else if depth <= 6 {
+        0.8
+    } else {
+        1.0 // Importância total em busca profunda
+    };
+    
+    // Ajuste por fase do jogo
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    let game_phase_factor = if total_pieces <= 12 {
+        1.2 // Endgame - posição é mais importante
+    } else if total_pieces >= 28 {
+        0.7 // Abertura - tática é mais importante
+    } else {
+        1.0 // Meio-jogo
+    };
+    
+    (score as f32 * depth_factor * game_phase_factor) as i32
 }
 
 
@@ -648,4 +695,293 @@ fn distance(sq1: u8, sq2: u8) -> u8 {
 /// Gera máscara de arquivo
 fn file_mask(file: u8) -> u64 {
     0x0101010101010101u64 << file
+}
+
+// ============================================================================
+// FUNÇÕES AUXILIARES APRIMORADAS PARA ORDENAÇÃO MODERNA
+// ============================================================================
+
+/// Avalia controle de centro de forma mais refinada
+fn evaluate_center_control(mv: Move, board: &Board) -> i32 {
+    let to_file = mv.to % 8;
+    let to_rank = mv.to / 8;
+    
+    let mut score = 0;
+    
+    // Centro absoluto (d4, d5, e4, e5) - pontuação máxima
+    if (to_file == 3 || to_file == 4) && (to_rank == 3 || to_rank == 4) {
+        score += 20000;
+    }
+    // Centro estendido (c3-f6) - pontuação média
+    else if to_file >= 2 && to_file <= 5 && to_rank >= 2 && to_rank <= 5 {
+        score += 12000;
+    }
+    // Centro amplo - pontuação baixa
+    else if to_file >= 1 && to_file <= 6 && to_rank >= 1 && to_rank <= 6 {
+        score += 6000;
+    }
+    
+    // Bônus adicional se a peça que move é um peão ou cavalo (peças que se beneficiam de centralização)
+    if let Some(piece) = board.get_piece_on_square(mv.from) {
+        match piece {
+            crate::types::PieceKind::Pawn => score += score / 2,
+            crate::types::PieceKind::Knight => score += score / 3,
+            _ => {}
+        }
+    }
+    
+    score
+}
+
+/// Avalia urgência defensiva de um movimento
+fn evaluate_defensive_urgency(board: &Board, mv: Move) -> i32 {
+    let our_color = board.to_move;
+    let enemy_color = !our_color;
+    let our_pieces = if our_color == crate::types::Color::White { board.white_pieces } else { board.black_pieces };
+    
+    let mut urgency = 0;
+    
+    // Conta peças valiosas atacadas pelo inimigo
+    let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
+    let mut attacked_value = 0;
+    let mut bb = our_valuables;
+    
+    while bb != 0 {
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+        
+        if board.is_square_attacked_by(sq, enemy_color) {
+            // Adiciona valor da peça atacada
+            if let Some(piece) = board.get_piece_on_square(sq) {
+                attacked_value += match piece {
+                    crate::types::PieceKind::Queen => 900,
+                    crate::types::PieceKind::Rook => 500,
+                    crate::types::PieceKind::Bishop => 330,
+                    crate::types::PieceKind::Knight => 320,
+                    _ => 0,
+                };
+            }
+        }
+    }
+    
+    // Urgência baseada no valor das peças atacadas
+    urgency += (attacked_value / 10).min(10000);
+    
+    // Urgência extra se rei está em xeque
+    if board.is_king_in_check(our_color) {
+        urgency += 5000;
+    }
+    
+    urgency
+}
+
+/// Verifica se movimento pode levar a ameaça de mate
+fn could_lead_to_mate_threat(board: &Board, mv: Move) -> bool {
+    // Implementação simplificada - pode ser expandida
+    let mut temp_board = *board;
+    let _undo_info = temp_board.make_move_fast(mv);
+    
+    // Verifica se após o movimento, o rei inimigo está em situação crítica
+    let enemy_color = !board.to_move;
+    let enemy_king = temp_board.kings & if enemy_color == crate::types::Color::White {
+        temp_board.white_pieces
+    } else {
+        temp_board.black_pieces
+    };
+    
+    if enemy_king == 0 { return false; }
+    
+    let king_sq = enemy_king.trailing_zeros() as u8;
+    let king_attacks = crate::moves::king::get_king_attacks_lookup(king_sq);
+    let safe_squares = king_attacks & !crate::evaluation::mobility::compute_attacked_squares(&temp_board, board.to_move);
+    
+    // Se rei tem 2 ou menos casas seguras, pode ser ameaça de mate
+    safe_squares.count_ones() <= 2
+}
+
+/// Verifica se movimento cria ameaça tática
+fn creates_tactical_threat(board: &Board, mv: Move) -> bool {
+    // Implementação básica - procura por forks, pins, skewers
+    let mut temp_board = *board;
+    let _undo_info = temp_board.make_move_fast(mv);
+    
+    let enemy_color = !board.to_move;
+    let enemy_pieces = if enemy_color == crate::types::Color::White {
+        temp_board.white_pieces
+    } else {
+        temp_board.black_pieces
+    };
+    
+    // Conta peças inimigas atacadas após o movimento
+    let enemy_valuables = (temp_board.knights | temp_board.bishops | temp_board.rooks | temp_board.queens) & enemy_pieces;
+    let mut attacked_count = 0;
+    let mut bb = enemy_valuables;
+    
+    while bb != 0 && attacked_count < 3 {
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+        
+        if temp_board.is_square_attacked_by(sq, board.to_move) {
+            attacked_count += 1;
+        }
+    }
+    
+    // Se ataca 2+ peças valiosas, é ameaça tática (possível fork)
+    attacked_count >= 2
+}
+
+/// Avalia ganho de mobilidade da peça
+fn evaluate_piece_mobility_gain(board: &Board, mv: Move) -> i32 {
+    if let Some(piece) = board.get_piece_on_square(mv.from) {
+        match piece {
+            crate::types::PieceKind::Knight => {
+                // Cavalos se beneficiam de posições centrais
+                let to_file = mv.to % 8;
+                let to_rank = mv.to / 8;
+                let center_distance = ((to_file as i32 - 4).abs() + (to_rank as i32 - 4).abs()) as u8;
+                (8 - center_distance as i32) * 300
+            },
+            crate::types::PieceKind::Bishop => {
+                // Bispos se beneficiam de diagonais longas
+                evaluate_diagonal_mobility(mv.to) * 200
+            },
+            crate::types::PieceKind::Rook => {
+                // Torres se beneficiam de fileiras e colunas abertas
+                evaluate_file_rank_mobility(board, mv.to) * 150
+            },
+            crate::types::PieceKind::Queen => {
+                // Rainha se beneficia de posições ativas
+                evaluate_queen_activity(board, mv.to) * 100
+            },
+            _ => 0,
+        }
+    } else {
+        0
+    }
+}
+
+/// Verifica se movimento isola peça própria
+fn isolates_own_piece(board: &Board, mv: Move) -> bool {
+    // Implementação simplificada - verifica se move peça para casa sem apoio
+    let mut temp_board = *board;
+    let _undo_info = temp_board.make_move_fast(mv);
+    
+    let our_color = board.to_move;
+    
+    // Verifica se a peça movida está atacada e não defendida
+    temp_board.is_square_attacked_by(mv.to, !our_color) &&
+    !temp_board.is_square_attacked_by(mv.to, our_color)
+}
+
+/// Avalia impacto na segurança do rei de forma mais precisa
+fn evaluate_king_safety_impact(board: &Board, mv: Move) -> i32 {
+    let our_color = board.to_move;
+    let our_king = board.kings & if our_color == crate::types::Color::White {
+        board.white_pieces
+    } else {
+        board.black_pieces
+    };
+    
+    if our_king == 0 { return 0; }
+    
+    let king_pos = our_king.trailing_zeros() as u8;
+    let king_distance_before = distance(mv.from, king_pos);
+    let king_distance_after = distance(mv.to, king_pos);
+    
+    let mut penalty = 0;
+    
+    // Penaliza movimento de defensores próximos ao rei
+    if king_distance_before <= 2 && king_distance_after > king_distance_before + 1 {
+        penalty += 15000;
+        
+        // Penalidade extra se rei não fez castling (simplificação - verifica se rei está na posição inicial)
+        let initial_king_pos = if our_color == crate::types::Color::White { 4 } else { 60 };
+        if king_pos == initial_king_pos {
+            penalty += 5000;
+        }
+    }
+    
+    // Penaliza abertura de linhas de ataque ao rei
+    if opens_attack_line_to_king(board, mv, king_pos) {
+        penalty += 20000;
+    }
+    
+    penalty
+}
+
+/// Funções auxiliares para mobilidade
+fn evaluate_diagonal_mobility(square: u8) -> i32 {
+    let file = square % 8;
+    let rank = square / 8;
+    
+    // Diagonais longas são melhores
+    let main_diagonal = if file == rank { 8 - (file as i32 - 4).abs() } else { 0 };
+    let anti_diagonal = if file + rank == 7 { 8 - (file as i32 - 4).abs() } else { 0 };
+    
+    main_diagonal.max(anti_diagonal)
+}
+
+fn evaluate_file_rank_mobility(board: &Board, square: u8) -> i32 {
+    let file = square % 8;
+    let rank = square / 8;
+    
+    let mut mobility = 0;
+    
+    // Avalia abertura da coluna
+    let file_mask = 0x0101010101010101u64 << file;
+    let pawns_in_file = (board.pawns & file_mask).count_ones();
+    mobility += (8 - pawns_in_file as i32) * 2;
+    
+    // Avalia abertura da fileira
+    let rank_mask = 0xFFu64 << (rank * 8);
+    let pieces_in_rank = ((board.white_pieces | board.black_pieces) & rank_mask).count_ones();
+    mobility += (8 - pieces_in_rank as i32);
+    
+    mobility
+}
+
+fn evaluate_queen_activity(board: &Board, square: u8) -> i32 {
+    let file = square % 8;
+    let rank = square / 8;
+    
+    let mut activity = 0;
+    
+    // Rainha ativa no centro
+    let center_bonus = 8 - ((file as i32 - 4).abs() + (rank as i32 - 4).abs());
+    activity += center_bonus * 2;
+    
+    // Rainha avançada no território inimigo
+    let enemy_territory = if board.to_move == crate::types::Color::White {
+        rank >= 5
+    } else {
+        rank <= 2
+    };
+    
+    if enemy_territory {
+        activity += 5;
+    }
+    
+    activity
+}
+
+/// Verifica se movimento abre linha de ataque ao rei
+fn opens_attack_line_to_king(board: &Board, mv: Move, king_pos: u8) -> bool {
+    // Implementação simplificada - verifica se remove peça que bloqueia linha
+    let from_to_king = attacks_between(mv.from, king_pos);
+    
+    // Se há linha entre 'from' e rei, verifica se há atacantes inimigos atrás
+    if from_to_king != 0 {
+        let enemy_pieces = if board.to_move == crate::types::Color::White {
+            board.black_pieces
+        } else {
+            board.white_pieces
+        };
+        
+        let enemy_sliders = (board.bishops | board.rooks | board.queens) & enemy_pieces;
+        
+        // Verifica se há peças inimigas deslizantes que podem atacar o rei pela linha
+        (from_to_king & enemy_sliders) != 0
+    } else {
+        false
+    }
 }

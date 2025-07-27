@@ -77,14 +77,14 @@ fn evaluate_opposition_types(our_king: u8, enemy_king: u8) -> i32 {
     let file_diff = (our_file as i32 - enemy_file as i32).abs();
     let rank_diff = (our_rank as i32 - enemy_rank as i32).abs();
 
-    // Oposição direta (horizontal/vertical)
+    // Oposição direta (horizontal/vertical) - valor corrigido conforme análise
     if (file_diff == 0 && rank_diff == 2) || (file_diff == 2 && rank_diff == 0) {
-        return 25; // Oposição direta é muito valiosa
+        return 150; // Aumentado de 25 para 150 - oposição é fundamental em finais
     }
 
-    // Oposição diagonal
+    // Oposição diagonal - valor também aumentado
     if file_diff == 2 && rank_diff == 2 {
-        return 20; // Oposição diagonal também é valiosa
+        return 80; // Aumentado de 20 para 80 - oposição diagonal também crucial
     }
 
     // Oposição próxima (1 casa de distância)

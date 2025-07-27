@@ -11,14 +11,20 @@ pub fn see(board: &Board, mv: Move) -> i32 {
     }
 
     let target = mv.to;
-    let attacker_kind = board.get_piece_on_square(mv.from).unwrap();
+    
+    // Verifica se há uma peça atacante válida
+    let attacker_kind = match board.get_piece_on_square(mv.from) {
+        Some(piece) => piece,
+        None => return 0, // Não há peça na casa origem - movimento inválido
+    };
+    
     let victim_kind = board.get_piece_on_square(target);
 
     if victim_kind.is_none() {
         return 0; // En passant ou erro
     }
 
-    let victim_value = PIECE_VALUES[victim_kind.unwrap() as usize];
+    let victim_value = PIECE_VALUES[victim_kind.unwrap() as usize]; // Já verificamos que não é None acima
     let attacker_value = PIECE_VALUES[attacker_kind as usize];
 
     // Ganho inicial: valor da peça capturada

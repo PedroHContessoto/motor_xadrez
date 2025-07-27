@@ -1,14 +1,13 @@
 use std::time::Instant;
 use crate::{board::Board, evaluation, transposition::{TranspositionTable, EntryType}, types::Move};
-use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::see_threshold};
+use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::{see_threshold, see}};
 
 const MATE_VALUE: i32 = 99999;
-const FUTILITY_MARGIN: [i32; 8] = [0, 200, 350, 600, 900, 1200, 1500, 1800];
-const REVERSE_FUTILITY_MARGIN: [i32; 8] = [0, 120, 240, 360, 480, 600, 720, 840];
-// === LMR AGRESSIVO E ADAPTATIVO ===
-const LMR_MIN_DEPTH: u8 = 2;
-const LMR_MIN_MOVES: usize = 2; // Mais agressivo - começa em 2 movimentos
-const LMR_BASE_REDUCTION: [[u8; 64]; 64] = calculate_lmr_table();
+const FUTILITY_MARGIN: [i32; 8] = [0, 150, 250, 400, 600, 800, 1000, 1200]; // Mais agressivo
+const REVERSE_FUTILITY_MARGIN: [i32; 8] = [0, 100, 200, 300, 400, 500, 600, 700]; // Mais agressivo
+// === LMR AGRESSIVO E ADAPTATIVO (FÓRMULA LOGARÍTMICA) ===
+const LMR_MIN_DEPTH: u8 = 1; // Mais agressivo - LMR desde profundidade 1
+const LMR_MIN_MOVES: usize = 1; // Mais agressivo - LMR desde o segundo movimento
 const PROBCUT_DEPTH: u8 = 5;
 const PROBCUT_MARGIN: i32 = 200;
 const SINGULAR_EXTENSION_DEPTH: u8 = 6;
@@ -55,7 +54,7 @@ fn pvs_search_internal(
     }
 
     if depth > 64 {
-        return evaluation::evaluate(board);
+        return evaluation::evaluate_with_depth(board, depth + ply as u8);
     }
 
     let original_alpha = alpha;
@@ -96,7 +95,7 @@ fn pvs_search_internal(
     }
 
     let in_check = board.is_king_in_check(board.to_move);
-    let static_eval = if !in_check { evaluation::evaluate(board) } else { -MATE_VALUE / 2 };
+    let static_eval = if !in_check { evaluation::evaluate_with_depth(board, depth + ply as u8) } else { -MATE_VALUE / 2 };
 
     // Reverse Futility Pruning (Static Null Move Pruning)
     if !is_pv_node && !in_check && depth <= 7 && static_eval != -MATE_VALUE / 2 {
@@ -114,23 +113,49 @@ fn pvs_search_internal(
         }
     }
 
-    // ProbCut
-    if !is_pv_node && depth >= PROBCUT_DEPTH && static_eval >= beta {
+    // === PROBCUT APRIMORADO ===
+    if !is_pv_node && depth >= PROBCUT_DEPTH && static_eval >= beta && beta < MATE_VALUE - 100 {
         let probcut_beta = beta + PROBCUT_MARGIN;
-        let probcut_moves = board.generate_legal_moves().into_iter()
-            .filter(|mv| board.is_capture(*mv) || gives_check_fast(board, *mv))
-            .take(3)
+        let probcut_depth = depth - 4;
+        
+        // Gera movimentos táticos para ProbCut
+        let mut probcut_moves = board.generate_legal_moves().into_iter()
+            .filter(|mv| {
+                board.is_capture(*mv) || 
+                gives_check_fast(board, *mv) ||
+                mv.promotion.is_some()
+            })
             .collect::<Vec<_>>();
             
-        for mv in probcut_moves {
+        // Ordena movimentos por SEE para ProbCut
+        probcut_moves.sort_by(|a, b| {
+            let see_a = if board.is_capture(*a) { see(board, *a) } else { 0 };
+            let see_b = if board.is_capture(*b) { see(board, *b) } else { 0 };
+            see_b.cmp(&see_a)
+        });
+            
+        for mv in probcut_moves.iter().take(6) { // Aumentado para 6 movimentos
             let mut temp_board = *board;
-            let _undo_info = temp_board.make_move_fast(mv);
+            let _undo_info = temp_board.make_move_fast(*mv);
+            
             let probcut_score = -pvs_search_internal(
-                &temp_board, depth - 4, -probcut_beta, -probcut_beta + 1, 
+                &temp_board, probcut_depth, -probcut_beta, -probcut_beta + 1, 
                 tt, context, start_time, max_time_ms, false, ply + 1
             );
+            
             if probcut_score >= probcut_beta {
-                return probcut_score;
+                // Verificação adicional para reduzir falsos positivos
+                if depth >= 8 {
+                    let verify_score = -pvs_search_internal(
+                        &temp_board, probcut_depth + 1, -probcut_beta, -probcut_beta + 1,
+                        tt, context, start_time, max_time_ms, false, ply + 1
+                    );
+                    if verify_score >= probcut_beta {
+                        return probcut_score;
+                    }
+                } else {
+                    return probcut_score;
+                }
             }
         }
     }
@@ -151,10 +176,24 @@ fn pvs_search_internal(
         }
     }
 
-    let legal_moves = board.generate_legal_moves();
+    // OTIMIZAÇÃO: Verificação rápida de mate/stalemate sem gerar todos os movimentos
+    // Só gera movimentos se realmente precisar para a busca
+    let legal_moves = if in_check {
+        // Em xeque: precisa verificar se há movimentos legais (mate?)
+        let moves = board.generate_legal_moves();
+        if moves.is_empty() {
+            return -(MATE_VALUE - ply as i32); // Mate
+        }
+        moves
+    } else {
+        // Não em xeque: assume que há movimentos legais (stalemate é raro)
+        // Só gera quando realmente precisar para ordenação
+        board.generate_legal_moves()
+    };
 
-    if legal_moves.is_empty() {
-        return if in_check { -(MATE_VALUE - ply as i32) } else { 0 };
+    // Verificação adicional para stalemate apenas se não em xeque
+    if !in_check && legal_moves.is_empty() {
+        return 0; // Stalemate
     }
 
     // === SINGULAR EXTENSIONS ===
@@ -174,17 +213,19 @@ fn pvs_search_internal(
     let mut moves_searched = 0;
     let mut tried_moves = Vec::with_capacity(ordered_moves.len());
 
-    // === MULTI-CUT PRUNING AVANÇADO ===
+    // === MULTI-CUT PRUNING APRIMORADO ===
     // Detecta posições onde múltiplos movimentos causam beta cutoff
-    let mut multicut_candidates = Vec::new();
-    if should_try_multicut(depth, is_pv_node, in_check, &ordered_moves) {
-        multicut_candidates = evaluate_multicut_pruning(
-            board, &ordered_moves, depth, alpha, beta, tt, context, start_time, max_time_ms, ply
+    if should_try_multicut_enhanced(depth, is_pv_node, in_check, &ordered_moves, static_eval, beta) {
+        let multicut_result = evaluate_multicut_pruning_enhanced(
+            board, &ordered_moves, depth, alpha, beta, static_eval, tt, context, start_time, max_time_ms, ply
         );
         
-        if multicut_candidates.len() >= 3 {
+        if multicut_result >= 3 {
             // Múltiplos movimentos causam cutoff - posição é muito boa
             return beta;
+        } else if multicut_result >= 2 {
+            // Reduz futility margins devido à posição tática boa
+            // (implementação futura)
         }
     }
 
@@ -228,16 +269,27 @@ fn pvs_search_internal(
 
         // Extensions
         let mut extension = 0;
-        if gives_check { extension += 1; }
+        if gives_check { 
+            extension += 1;
+            // Extensão extra em sequências de xeque ou posições de mate
+            if in_check || context.nodes_searched < 100000 { // Menos nodes = mais cuidado
+                extension += 1;
+            }
+        }
         if mv.promotion.is_some() { extension += 1; }
         if is_recapture(board, *mv, context) { extension += 1; }
+        
+        // Extensão especial para posições críticas de mate
+        if in_check && depth <= 3 {
+            extension += 2; // Busca muito mais profunda em xeques próximos ao fim
+        }
         
         // Aplica singular extension se movimento da TT
         if Some(*mv) == tt_move && singular_extension > 0 {
             extension += singular_extension;
         }
         
-        extension = extension.min(3); // Aumentado para permitir singular extensions
+        extension = extension.min(6); // Aumentado para permitir extensões de mate mais profundas
 
         let mut score;
 
@@ -245,15 +297,16 @@ fn pvs_search_internal(
             let first_depth = depth.saturating_sub(1) + extension;
             score = -pvs_search_internal(&temp_board, first_depth, -beta, -alpha, tt, context, start_time, max_time_ms, is_pv_node, ply + 1);
         } else {
-            // === LMR AGRESSIVO BASEADO EM TABELA PRÉ-CALCULADA ===
+            // === LMR AVANÇADO COM FÓRMULA LOGARÍTMICA E AJUSTES ADAPTATIVOS ===
             let mut reduction: u8 = 0;
             if depth >= LMR_MIN_DEPTH && moves_searched >= LMR_MIN_MOVES && !is_pv_node
-                && !is_capture && !gives_check && !in_check && extension == 0 {
+                && !is_capture && !gives_check && !in_check && extension == 0 
+                && !board.is_king_in_check(board.to_move) {  // Desabilita LMR em posições de xeque
 
-                // Base reduction da tabela pré-calculada (muito mais rápido)
-                let depth_idx = (depth as usize).min(63);
-                let moves_idx = moves_searched.min(63);
-                let mut base_reduction = LMR_BASE_REDUCTION[depth_idx][moves_idx];
+                // Fórmula logarítmica moderna MAIS AGRESSIVA (mais precisa que tabela)
+                let log_depth = (depth as f32).ln();
+                let log_moves = (moves_searched as f32).ln();
+                let mut base_reduction = (log_depth * log_moves / 1.5) as u8; // Mais agressivo - divisor reduzido de 2.0 para 1.5
                 
                 // === AJUSTES ADAPTATIVOS AVANÇADOS ===
                 
@@ -261,18 +314,32 @@ fn pvs_search_internal(
                 if let Some(piece_kind) = board.get_piece_on_square(mv.from) {
                     let history = context.get_history_score(*mv, piece_kind);
                     
-                    if history > 2000 {
-                        base_reduction = base_reduction.saturating_sub(2); // Movimento muito bom
-                    } else if history > 500 {
+                    if history > 3000 {
+                        base_reduction = base_reduction.saturating_sub(2); // Movimento excepcional
+                    } else if history > 1000 {
                         base_reduction = base_reduction.saturating_sub(1); // Movimento bom
-                    } else if history < -2000 {
+                    } else if history < -3000 {
                         base_reduction += 2; // Movimento muito ruim
-                    } else if history < -500 {
+                    } else if history < -1000 {
                         base_reduction += 1; // Movimento ruim
                     }
                 }
                 
-                // 2. Redução baseada na complexidade posicional
+                // 2. Ajuste para killer moves (reduz menos)
+                if context.is_killer(*mv, depth) {
+                    base_reduction = base_reduction.saturating_sub(1);
+                }
+                
+                // 3. Counter-moves (movimentos que refutam o anterior)
+                if let Some(last_move) = context.get_last_move() {
+                    if let Some(counter) = context.get_counter_move(last_move) {
+                        if counter == *mv {
+                            base_reduction = base_reduction.saturating_sub(1);
+                        }
+                    }
+                }
+                
+                // 4. Redução baseada na complexidade posicional
                 let tactical_level = evaluate_tactical_complexity(board);
                 match tactical_level {
                     3 => base_reduction = base_reduction.saturating_sub(2), // Posição muito tática
@@ -281,7 +348,7 @@ fn pvs_search_internal(
                     _ => {} // Posição normal
                 }
                 
-                // 3. Ajuste para peças específicas (cavalos e bispos em posições táticas)
+                // 5. Ajuste para peças específicas
                 let from_sq_bit = 1u64 << mv.from;
                 if (board.knights & from_sq_bit) != 0 || (board.bishops & from_sq_bit) != 0 {
                     if tactical_level >= 2 {
@@ -289,14 +356,25 @@ fn pvs_search_internal(
                     }
                 }
                 
-                // 4. Redução extra para movimentos muito tardios
-                if moves_searched >= 16 {
+                // 6. Penalização para movimentos muito tardios
+                if moves_searched >= 20 {
                     base_reduction += 1;
-                } else if moves_searched >= 32 {
+                } else if moves_searched >= 40 {
                     base_reduction += 2;
                 }
                 
-                // 5. Limitações finais com mínimo mais agressivo
+                // 7. Ajuste para endgame (menos redução)
+                let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+                if total_pieces <= 12 {
+                    base_reduction = base_reduction.saturating_sub(1);
+                }
+                
+                // 8. Ajuste para PV nodes
+                if is_pv_node {
+                    base_reduction = base_reduction.saturating_sub(1);
+                }
+                
+                // 9. Limitações finais
                 reduction = base_reduction.clamp(1, depth.saturating_sub(1).max(1));
             }
 
@@ -386,63 +464,24 @@ fn is_killer_or_counter_move(mv: Move, context: &SearchContext, depth: u8) -> bo
     }
 }
 
-/// Threshold para Late Move Count Pruning
+/// Threshold para Late Move Count Pruning - SUPER AGRESSIVO
 fn late_move_count_threshold(depth: u8) -> usize {
-    // Threshold mais agressivo para late moves
+    // Threshold MUITO mais agressivo para late moves
     match depth {
-        1 => 4,   // Era 6, agora 4 (mais agressivo)
-        2 => 6,   // Era 8, agora 6
-        3 => 8,   // Era 12, agora 8
-        4 => 12,  // Era 16, agora 12
-        5 => 16,  // Era 20, agora 16
-        6 => 20,  // Era 24, agora 20
-        7 => 24,  // Era 28, agora 24
-        _ => 28,  // Era 32, agora 28
+        1 => 2,   // Extremamente agressivo - só 2 movimentos!
+        2 => 3,   // Muito agressivo
+        3 => 5,   // Reduzido ainda mais  
+        4 => 8,   // Significativamente reduzido
+        5 => 12,  // Reduzido
+        6 => 16,  // Reduzido
+        7 => 20,  // Reduzido
+        _ => 24,  // Reduzido
     }
 }
 
 // ============================================================================
-// FUNÇÕES AUXILIARES PARA LMR AVANÇADO
+// FUNÇÕES AUXILIARES PARA LMR LOGARÍTMICO (SUBSTITUI TABELA ANTIGA)
 // ============================================================================
-
-/// Calcula tabela LMR pré-computada (const function)
-const fn calculate_lmr_table() -> [[u8; 64]; 64] {
-    let mut table = [[0u8; 64]; 64];
-    let mut depth = 1;
-    
-    while depth < 64 {
-        let mut moves = 1;
-        while moves < 64 {
-            // Fórmula agressiva baseada em engines fortes
-            let base = if depth >= 6 && moves >= 12 {
-                3
-            } else if depth >= 4 && moves >= 8 {
-                2  
-            } else if depth >= 3 && moves >= 4 {
-                1
-            } else {
-                0
-            };
-            
-            // Redução adicional para movimentos muito tardios
-            let late_penalty = if moves >= 32 {
-                2
-            } else if moves >= 16 {
-                1
-            } else {
-                0
-            };
-            
-            let max_reduction = if depth > 1 { depth - 1 } else { 1 };
-            let total_reduction = base + late_penalty;
-            table[depth][moves] = if total_reduction > max_reduction as u8 { max_reduction as u8 } else { total_reduction };
-            moves += 1;
-        }
-        depth += 1;
-    }
-    
-    table
-}
 
 /// Avalia complexidade tática da posição (0-3)
 fn evaluate_tactical_complexity(board: &Board) -> u8 {
@@ -1060,123 +1099,12 @@ fn get_piece_value_simple(piece: crate::types::PieceKind) -> i32 {
 // MULTI-CUT PRUNING - PODA QUANDO MÚLTIPLOS MOVIMENTOS SÃO BONS
 // ============================================================================
 
-/// Constantes para Multi-cut Pruning
-const MULTICUT_MIN_DEPTH: u8 = 6;          // Profundidade mínima para tentar multi-cut
-const MULTICUT_MIN_MOVES: usize = 8;       // Número mínimo de movimentos para justificar
-const MULTICUT_SEARCH_DEPTH: u8 = 3;       // Redução na busca de verificação
-const MULTICUT_CUTOFF_THRESHOLD: usize = 3; // Número de cutoffs para confirmar multi-cut
-const MULTICUT_MAX_MOVES_TEST: usize = 8;   // Máximo de movimentos para testar
-const MULTICUT_MARGIN: i32 = 100;          // Margem adicional para ser mais seletivo
-
-/// Estrutura para rastrear resultado de multi-cut
-#[derive(Debug, Clone)]
-struct MulticutResult {
-    cutoff_moves: Vec<Move>,    // Movimentos que causaram cutoff
-    best_score: i32,            // Melhor score encontrado
-    total_tested: usize,        // Total de movimentos testados
-}
-
-impl MulticutResult {
-    fn new() -> Self {
-        MulticutResult {
-            cutoff_moves: Vec::new(),
-            best_score: -50000,
-            total_tested: 0,
-        }
-    }
-    
-    fn is_multicut(&self) -> bool {
-        self.cutoff_moves.len() >= MULTICUT_CUTOFF_THRESHOLD
-    }
-}
-
-/// Verifica se devemos tentar multi-cut pruning
-fn should_try_multicut(depth: u8, is_pv_node: bool, in_check: bool, moves: &[Move]) -> bool {
-    // Condições básicas para multi-cut
-    if depth < MULTICUT_MIN_DEPTH || is_pv_node || in_check {
-        return false;
-    }
-    
-    // Precisa ter movimentos suficientes para justificar o teste
-    if moves.len() < MULTICUT_MIN_MOVES {
-        return false;
-    }
-    
-    true
-}
-
-/// Avalia multi-cut pruning testando movimentos iniciais
-fn evaluate_multicut_pruning(
-    board: &Board,
-    moves: &[Move],
-    depth: u8,
-    alpha: i32,
-    beta: i32,
-    tt: &mut TranspositionTable,
-    context: &mut SearchContext,
-    start_time: Instant,
-    max_time_ms: u64,
-    ply: usize
-) -> Vec<Move> {
-    let mut result = MulticutResult::new();
-    let search_depth = depth.saturating_sub(MULTICUT_SEARCH_DEPTH);
-    let adjusted_beta = beta + MULTICUT_MARGIN; // Mais seletivo
-    
-    // Testa apenas os primeiros movimentos (mais prováveis de serem bons)
-    let moves_to_test = moves.len().min(MULTICUT_MAX_MOVES_TEST);
-    
-    for &mv in moves.iter().take(moves_to_test) {
-        // Verifica timeout - multi-cut não deve consumir muito tempo
-        if start_time.elapsed().as_millis() as u64 > max_time_ms / 3 {
-            break;
-        }
-        
-        if context.should_stop {
-            break;
-        }
-        
-        let mut temp_board = *board;
-        let _undo_info = temp_board.make_move_fast(mv);
-        
-        context.push_move(mv);
-        result.total_tested += 1;
-        
-        // Busca com janela zero para teste rápido
-        let score = -pvs_search_internal(
-            &temp_board, 
-            search_depth, 
-            -adjusted_beta, 
-            -adjusted_beta + 1, 
-            tt, 
-            context, 
-            start_time, 
-            max_time_ms, 
-            false, 
-            ply + 1
-        );
-        
-        context.pop_move();
-        
-        result.best_score = result.best_score.max(score);
-        
-        // Se movimento causa cutoff, adiciona à lista
-        if score >= adjusted_beta {
-            result.cutoff_moves.push(mv);
-            
-            // Se já temos cutoffs suficientes, podemos parar
-            if result.is_multicut() {
-                break;
-            }
-        }
-        
-        // Se encontramos poucos cutoffs após testar vários movimentos, não vale a pena continuar
-        if result.total_tested >= 6 && result.cutoff_moves.len() < 2 {
-            break;
-        }
-    }
-    
-    result.cutoff_moves
-}
+// ============================================================================ 
+// CONSTANTES PARA MULTI-CUT APRIMORADO (SUBSTITUEM AS ANTIGAS)
+// ============================================================================
+const MULTICUT_CUTOFF_THRESHOLD: usize = 3;
+const MULTICUT_SEARCH_DEPTH: u8 = 3;
+const MULTICUT_MARGIN: i32 = 100;
 
 /// Multi-cut pruning aprimorado com análise de padrões
 fn evaluate_advanced_multicut(
@@ -1408,4 +1336,102 @@ enum MulticutPositionType {
     DominantPosition,   // Posição dominante - multi-cut provável
     TacticalAdvantage,  // Vantagem tática - multi-cut possível
     Normal,             // Posição normal - multi-cut improvável
+}
+
+// ============================================================================
+// MULTI-CUT PRUNING APRIMORADO - FUNÇÕES AUXILIARES
+// ============================================================================
+
+/// Verifica se devemos tentar multi-cut pruning aprimorado
+fn should_try_multicut_enhanced(
+    depth: u8, 
+    is_pv_node: bool, 
+    in_check: bool, 
+    moves: &[Move], 
+    static_eval: i32, 
+    beta: i32
+) -> bool {
+    if depth < 6 || is_pv_node || in_check || moves.len() < 8 {
+        return false;
+    }
+    
+    // Só tenta se avaliação estática indica posição boa
+    if static_eval < beta + 100 {
+        return false;
+    }
+    
+    true
+}
+
+/// Avalia multi-cut pruning de forma aprimorada e eficiente
+fn evaluate_multicut_pruning_enhanced(
+    board: &Board,
+    moves: &[Move],
+    depth: u8,
+    alpha: i32,
+    beta: i32,
+    static_eval: i32,
+    tt: &mut TranspositionTable,
+    context: &mut SearchContext,
+    start_time: Instant,
+    max_time_ms: u64,
+    ply: usize
+) -> usize {
+    let search_depth = depth.saturating_sub(3);
+    let margin = if static_eval > beta + 200 { 150 } else { 100 };
+    let test_beta = beta + margin;
+    
+    let mut cutoff_count = 0;
+    let max_moves_to_test = if depth >= 10 { 8 } else { 6 };
+    
+    for &mv in moves.iter().take(max_moves_to_test) {
+        // Timeout check otimizado
+        if cutoff_count == 0 && start_time.elapsed().as_millis() as u64 > max_time_ms / 4 {
+            break;
+        }
+        
+        if context.should_stop {
+            break;
+        }
+        
+        // Filtra movimentos táticos prioritários para multi-cut
+        let is_tactical = board.is_capture(mv) || 
+                         gives_check_fast(board, mv) || 
+                         mv.promotion.is_some();
+        
+        if !is_tactical {
+            continue;
+        }
+        
+        let mut temp_board = *board;
+        let _undo_info = temp_board.make_move_fast(mv);
+        
+        context.push_move(mv);
+        
+        let score = -pvs_search_internal(
+            &temp_board, 
+            search_depth, 
+            -test_beta, 
+            -test_beta + 1, 
+            tt, 
+            context, 
+            start_time, 
+            max_time_ms, 
+            false, 
+            ply + 1
+        );
+        
+        context.pop_move();
+        
+        if score >= test_beta {
+            cutoff_count += 1;
+            
+            // Para cedo se já confirmou multi-cut
+            if cutoff_count >= 3 {
+                break;
+            }
+        }
+    }
+    
+    cutoff_count
 }

@@ -29,12 +29,12 @@ fn quiescence_search_with_ply(
 
     // Termina se atingiu limite de ply ou stop flag
     if ply >= max_ply || context.should_stop {
-        return evaluation::evaluate(board);
+        return evaluation::evaluate_with_depth(board, 8 + ply as u8); // Quiescence é profundidade alta
     }
     let in_check = board.is_king_in_check(board.to_move);
 
-    // Stand pat - avaliação da posição quieta
-    let stand_pat = evaluation::evaluate(board);
+    // Stand pat - avaliação da posição quieta (reutiliza se já calculou acima)
+    let stand_pat = evaluation::evaluate_with_depth(board, 8 + ply as u8);
 
     // Beta cutoff
     if !in_check && stand_pat >= beta {
@@ -63,18 +63,8 @@ fn quiescence_search_with_ply(
         // Capturas de peão (mais eficiente)
         tactical_moves.extend(crate::moves::pawn::generate_pawn_captures(board));
 
-        // Capturas de outras peças
-        let all_moves = board.generate_legal_moves();
-        for mv in all_moves {
-            if board.is_capture(mv) {
-                tactical_moves.push(mv);
-            } else {
-                // Verifica se é check sem fazer o movimento (otimização)
-                if gives_check_fast(board, mv) {
-                    tactical_moves.push(mv);
-                }
-            }
-        }
+        // OTIMIZAÇÃO: Gera apenas capturas + checks (mais eficiente que todos os movimentos)
+        tactical_moves.extend(board.generate_captures_and_checks());
     }
 
     // Remove capturas obviamente perdedoras com SEE, exceto capturas de rainha
@@ -192,7 +182,7 @@ pub fn quiescence_search_depth_limited(
     context: &mut SearchContext
 ) -> i32 {
     if depth_left <= 0 {
-        return evaluation::evaluate(board);
+        return evaluation::evaluate_with_depth(board, 8); // Quiescence profunda
     }
 
     quiescence_search(board, alpha, beta, tt, context)
