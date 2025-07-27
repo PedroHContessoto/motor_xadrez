@@ -13,9 +13,11 @@ pub mod meta_evaluation;
 pub mod draw_win_management;
 pub mod victory_conversion;
 pub mod cache;
+pub mod endgame;  // Novo módulo dedicado aos finais
 
 use crate::{board::Board, types::Color, profile, count};
 use cache::{get_cached_evaluation_with_depth, store_evaluation_with_depth};
+use endgame::{EndgameEvaluator, EndgameEvaluation};
 
 
 /// Função principal de avaliação (interface pública)
@@ -54,6 +56,21 @@ pub fn evaluate_with_depth(board: &Board, depth: u8) -> i32 {
     });
 
     let mut final_score = white_score - black_score;
+    
+    // NOVO: Avaliação especializada de finais conforme análise
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    if total_pieces <= 12 && depth <= 6 { // Finais e busca não muito profunda
+        if let Some(endgame_eval) = profile!("endgame_evaluation", {
+            evaluate_endgame_specialized(board)
+        }) {
+            // Se é final teórico, usa avaliação especializada
+            if endgame_eval.is_theoretical {
+                return endgame_eval.score;
+            }
+            // Senão, adiciona como componente
+            final_score += endgame_eval.score / 4; // Mistura com avaliação normal
+        }
+    }
 
     // Componentes caros apenas em nós importantes (profundidade baixa)
     if depth <= 4 {
@@ -523,4 +540,13 @@ fn calculate_raw_material(board: &Board, color: Color) -> i32 {
     let queens = (board.queens & pieces).count_ones() as i32 * 900;
     
     pawns + knights + bishops + rooks + queens
+}
+
+/// Avaliação especializada de finais usando novos módulos
+fn evaluate_endgame_specialized(board: &Board) -> Option<EndgameEvaluation> {
+    lazy_static::lazy_static! {
+        static ref ENDGAME_EVALUATOR: EndgameEvaluator = EndgameEvaluator::new();
+    }
+    
+    ENDGAME_EVALUATOR.evaluate(board)
 }
