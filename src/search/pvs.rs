@@ -292,8 +292,8 @@ fn pvs_search_internal(
         // Calcula extensões por prioridade (não acumula, escolhe a melhor)
         let mut extension_candidates = Vec::new();
         
-        // 1. PRIORIDADE MÁXIMA: Checks em posições críticas de mate
-        if gives_check && in_check && depth <= 1 && ply <= 10 {
+        // 1. PRIORIDADE MÁXIMA: Ameaças de mate relaxadas (conforme análise)
+        if gives_check && (in_check || depth <= 3) && ply <= 15 {
             extension_candidates.push(("mate_threat", 2));
         }
         
@@ -302,9 +302,15 @@ fn pvs_search_internal(
             extension_candidates.push(("singular", singular_extension as i32));
         }
         
-        // 3. PRIORIDADE ALTA: Checks básicos
-        if gives_check {
+        // 3. PRIORIDADE ALTA: Checks básicos (relaxados)
+        if gives_check && ply <= 20 {
             extension_candidates.push(("check", 1));
+        }
+        
+        // 3.5. PRIORIDADE ALTA: Posições próximas de mate (nova)
+        let static_eval = crate::evaluation::evaluate_with_depth(board, depth);
+        if static_eval.abs() > 8000 && ply <= 18 {
+            extension_candidates.push(("near_mate", 1));
         }
         
         // 4. PRIORIDADE MÉDIA: Promoções

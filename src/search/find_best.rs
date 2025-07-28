@@ -344,7 +344,7 @@ fn format_mate_score_clean(score: i32) -> String {
 
 /// Calcula distância precisa do mate baseado no score
 fn calculate_mate_distance_accurate(mate_score: i32) -> u8 {
-    const MATE_VALUE: i32 = 10000;
+    const MATE_VALUE: i32 = 99999; // Uniformizado com outros módulos
     
     // Fórmula padrão UCI: distância = (MATE_VALUE - score)
     // Mas ajustada para ser sempre positiva e realista

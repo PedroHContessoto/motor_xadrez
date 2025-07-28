@@ -3,12 +3,12 @@ use crate::{
     board::Board, 
     types::{Color, Move, Piece, PieceKind}, 
     transposition::{TranspositionTable, EntryType},
-    evaluation::endgame_patterns::{evaluate_endgame_patterns, evaluate_king_activity_advanced}
+    evaluation::endgame::patterns::{evaluate_endgame_patterns, evaluate_king_activity_advanced}
 };
 use std::time::Instant;
 
 // Constantes para detecção de mate
-const MATE_VALUE: i32 = 100000;
+const MATE_VALUE: i32 = 99999; // Uniformizado com outros módulos
 const MAX_MATE_DISTANCE: u8 = 30; // Máximo de movimentos para buscar mate
 const MATE_SEARCH_TIME_LIMIT: u128 = 2000; // 2 segundos em milissegundos
 
@@ -26,7 +26,7 @@ pub struct MateInfo {
 }
 
 /// Qualidade da análise de endgame para o mate
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EndgameQuality {
     Perfect,      // Mate forçado com técnica perfeita
     Excellent,    // Mate com técnica muito boa
@@ -80,8 +80,48 @@ impl MateDetector {
         self.start_time = Instant::now();
         self.nodes_searched = 0;
 
+        // NOVA: Verifica cache especializado de mate primeiro
+        if let Some(cached) = crate::evaluation::cache::MateCache::get(board.zobrist_hash) {
+            if cached.search_depth >= max_depth.min(10) {
+                if let Some(mate_in) = cached.mate_in {
+                    let mate_pattern = self.identify_mate_pattern(board, &cached.best_moves);
+                    let endgame_quality = if cached.is_forced { EndgameQuality::Perfect } else { EndgameQuality::Excellent };
+                    
+                    let mate_info = MateInfo {
+                        mate_in_moves: mate_in,
+                        best_sequence: cached.best_moves,
+                        evaluation: cached.evaluation,
+                        search_depth: cached.search_depth,
+                        nodes_searched: 0, // Cached result
+                        time_taken_ms: 0,
+                        endgame_quality,
+                        mate_pattern,
+                    };
+                    return MateResult::MateFound(mate_info);
+                }
+            }
+        }
+
         // Análise prévia de endgame para guiar a busca
         let endgame_analysis = self.analyze_endgame_position(board);
+        
+        // NOVA: Integração com mate search do endgame folder
+        if let Some(endgame_mate) = crate::evaluation::endgame::mate_search::integrate_mate_search_with_endgame(board) {
+            let mate_pattern = self.identify_mate_pattern(board, &endgame_mate.moves);
+            let endgame_quality = if endgame_mate.is_forced { EndgameQuality::Perfect } else { EndgameQuality::Excellent };
+            
+            let mate_info = MateInfo {
+                mate_in_moves: endgame_mate.mate_in,
+                best_sequence: endgame_mate.moves,
+                evaluation: endgame_mate.evaluation,
+                search_depth: endgame_mate.mate_in,
+                nodes_searched: self.nodes_searched,
+                time_taken_ms: self.start_time.elapsed().as_millis(),
+                endgame_quality,
+                mate_pattern,
+            };
+            return MateResult::MateFound(mate_info);
+        }
         
         // Busca rápida para mates imediatos (M1)
         if let Some(mate_move) = self.find_mate_in_one(board) {
@@ -108,9 +148,28 @@ impl MateDetector {
             }
 
             if let Some(mate_info) = self.search_mate_at_depth(board, depth, tt, &endgame_analysis) {
+                // NOVA: Armazena resultado no cache especializado de mate
+                crate::evaluation::cache::MateCache::store(
+                    board.zobrist_hash,
+                    Some(mate_info.mate_in_moves),
+                    mate_info.best_sequence.clone(),
+                    mate_info.evaluation,
+                    mate_info.endgame_quality == EndgameQuality::Perfect,
+                    depth
+                );
                 return MateResult::MateFound(mate_info);
             }
         }
+
+        // NOVA: Armazena no cache que não foi encontrado mate nesta profundidade
+        crate::evaluation::cache::MateCache::store(
+            board.zobrist_hash,
+            None,
+            vec![],
+            0,
+            false,
+            max_depth
+        );
 
         MateResult::NoMateFound
     }
@@ -535,7 +594,7 @@ impl MateDetector {
 #[derive(Debug, Clone)]
 struct EndgameAnalysis {
     piece_count: u32,
-    endgame_patterns: crate::evaluation::endgame_patterns::EndgamePatterns,
+    endgame_patterns: crate::evaluation::endgame::patterns::EndgamePatterns,
     king_activity_score: i32,
     is_theoretical_endgame: bool,
     mate_potential_score: i32,

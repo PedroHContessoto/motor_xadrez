@@ -1,5 +1,5 @@
 // Cache de avaliação para evitar recálculos desnecessários
-use crate::{board::Board, types::Color};
+use crate::{board::Board, types::{Color, Move}};
 use std::collections::HashMap;
 
 /// Cache LRU simples para avaliações
@@ -281,5 +281,81 @@ pub fn get_cache_stats() -> String {
                 hits, misses, hit_rate, cache.size())
     } else {
         "Cache: Indisponível".to_string()
+    }
+}
+
+// ============================================================================
+// CACHE ESPECIALIZADO PARA POSIÇÕES DE MATE (CONFORME ANÁLISE)
+// ============================================================================
+
+use std::sync::{Mutex, OnceLock};
+static MATE_CACHE: OnceLock<Mutex<HashMap<u64, CachedMateResult>>> = OnceLock::new();
+
+/// Resultado de mate cacheado
+#[derive(Debug, Clone)]
+pub struct CachedMateResult {
+    pub mate_in: Option<u8>,
+    pub best_moves: Vec<Move>,
+    pub evaluation: i32,
+    pub is_forced: bool,
+    pub search_depth: u8,
+}
+
+/// Cache especializado para posições de mate
+pub struct MateCache;
+
+impl MateCache {
+    /// Obtém resultado de mate do cache
+    pub fn get(position_hash: u64) -> Option<CachedMateResult> {
+        let cache_mutex = MATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(cache) = cache_mutex.try_lock() {
+            cache.get(&position_hash).cloned()
+        } else {
+            None
+        }
+    }
+    
+    /// Armazena resultado de mate no cache
+    pub fn store(position_hash: u64, mate_in: Option<u8>, moves: Vec<Move>, 
+                 evaluation: i32, is_forced: bool, depth: u8) {
+        let cache_mutex = MATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(mut cache) = cache_mutex.try_lock() {
+            // Limita tamanho do cache (especializado para mates)
+            if cache.len() >= 10000 {
+                cache.clear(); // Cache pequeno mas eficiente para mates
+            }
+            
+            cache.insert(position_hash, CachedMateResult {
+                mate_in,
+                best_moves: moves,
+                evaluation,
+                is_forced,
+                search_depth: depth,
+            });
+        }
+    }
+    
+    /// Limpa cache de mate
+    pub fn clear() {
+        let cache_mutex = MATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(mut cache) = cache_mutex.try_lock() {
+            cache.clear();
+        }
+    }
+    
+    /// Estatísticas do cache de mate
+    pub fn stats() -> (usize, f64) {
+        let cache_mutex = MATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(cache) = cache_mutex.try_lock() {
+            let size = cache.len();
+            let efficiency = if size > 0 { 
+                cache.values().filter(|v| v.mate_in.is_some()).count() as f64 / size as f64 * 100.0 
+            } else { 
+                0.0 
+            };
+            (size, efficiency)
+        } else {
+            (0, 0.0)
+        }
     }
 }

@@ -5,6 +5,8 @@ pub mod theoretical;
 pub mod practical;
 pub mod patterns;
 pub mod tablebase;
+pub mod mate_evaluators;
+pub mod mate_search;
 
 use theoretical::*;
 use practical::*;
@@ -76,7 +78,7 @@ pub struct EndgameEvaluation {
 pub struct EndgameEvaluator {
     pub theoretical: TheoreticalEvaluator,
     pub practical: PracticalEvaluator,
-    pub patterns: MatePatternDetector,
+    pub patterns: MatePatternDetector, // TODO: Implementar quando necessário
 }
 
 impl EndgameEvaluator {
@@ -84,7 +86,7 @@ impl EndgameEvaluator {
         Self {
             theoretical: TheoreticalEvaluator::new(),
             practical: PracticalEvaluator::new(),
-            patterns: MatePatternDetector::new(),
+            patterns: MatePatternDetector::new(), // TODO: Implementar quando necessário
         }
     }
     

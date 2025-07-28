@@ -8,7 +8,6 @@ pub mod mobility;
 pub mod pawn_structure;
 pub mod game_phase;
 mod utils;
-pub mod endgame_patterns;
 pub mod meta_evaluation;
 pub mod draw_win_management;
 pub mod victory_conversion;

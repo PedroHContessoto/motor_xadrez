@@ -1,435 +1,339 @@
-// Detector de padrões de mate - implementação completa conforme análise
-use crate::{board::Board, types::{Move, Color, PieceKind, Bitboard}};
+// Padrões avançados de endgame - triangulação, oposição à distância, etc.
+use crate::{board::Board, types::{Color, Bitboard}};
+use crate::evaluation::utils as eval_utils;
 
-/// Tipos de padrões de mate
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MatePatternType {
-    BackRankMate,       // Mate do corredor
-    SmotheredMate,      // Mate abafado
-    TwoRooksMate,       // Mate com duas torres
-    QueenRookMate,      // Mate com dama e torre
-    LadderMate,         // Mate escada (torre)
-    DiscoveredMate,     // Mate por descoberta
-    DoubleMate,         // Mate duplo
-    Anastasia,          // Mate de Anastásia
-    Arabian,            // Mate árabe
-    Epaulette,          // Mate de charreteira
+/// Estrutura para análise avançada de padrões de endgame
+#[derive(Debug, Clone, Copy)]
+pub struct EndgamePatterns {
+    pub king_opposition: i32,
+    pub distant_opposition: i32,
+    pub triangulation: i32,
+    pub outflanking: i32,
+    pub zugzwang_potential: i32,
+    pub square_rule: i32,
 }
 
-/// Resultado da detecção de padrão de mate
-#[derive(Debug, Clone)]
-pub struct MatePattern {
-    pub pattern_type: MatePatternType,
-    pub mate_in: u8,
-    pub evaluation: i32,
-    pub key_squares: Vec<u8>,
-    pub forcing_moves: Vec<Move>,
-    pub description: String,
+impl EndgamePatterns {
+    pub fn new() -> Self {
+        EndgamePatterns {
+            king_opposition: 0,
+            distant_opposition: 0,
+            triangulation: 0,
+            outflanking: 0,
+            zugzwang_potential: 0,
+            square_rule: 0,
+        }
+    }
+
+    pub fn total_score(&self) -> i32 {
+        self.king_opposition + self.distant_opposition + self.triangulation +
+            self.outflanking + self.zugzwang_potential + self.square_rule
+    }
+}
+
+/// Avalia padrões avançados de endgame
+pub fn evaluate_endgame_patterns(board: &Board, color: Color) -> EndgamePatterns {
+    let mut patterns = EndgamePatterns::new();
+
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+
+    let our_king = board.kings & our_pieces;
+    let enemy_king = board.kings & enemy_pieces;
+
+    if our_king == 0 || enemy_king == 0 {
+        return patterns;
+    }
+
+    let our_king_sq = our_king.trailing_zeros() as u8;
+    let enemy_king_sq = enemy_king.trailing_zeros() as u8;
+
+    // Avalia diferentes tipos de oposição
+    patterns.king_opposition = evaluate_opposition_types(our_king_sq, enemy_king_sq);
+    patterns.distant_opposition = evaluate_distant_opposition(our_king_sq, enemy_king_sq);
+
+    // Avalia potencial de triangulação
+    patterns.triangulation = evaluate_triangulation_potential(board, color, our_king_sq, enemy_king_sq);
+
+    // Avalia outflanking (contorno)
+    patterns.outflanking = evaluate_outflanking(our_king_sq, enemy_king_sq);
+
+    // Avalia potencial de zugzwang
+    patterns.zugzwang_potential = evaluate_zugzwang_potential(board, color);
+
+    // Regra do quadrado para peões passados
+    patterns.square_rule = evaluate_square_rule(board, color, our_king_sq, enemy_king_sq);
+
+    patterns
+}
+
+/// Avalia diferentes tipos de oposição entre reis
+fn evaluate_opposition_types(our_king: u8, enemy_king: u8) -> i32 {
+    let our_file = our_king % 8;
+    let our_rank = our_king / 8;
+    let enemy_file = enemy_king % 8;
+    let enemy_rank = enemy_king / 8;
+
+    let file_diff = (our_file as i32 - enemy_file as i32).abs();
+    let rank_diff = (our_rank as i32 - enemy_rank as i32).abs();
+
+    // Oposição direta (horizontal/vertical) - valor corrigido conforme análise
+    if (file_diff == 0 && rank_diff == 2) || (file_diff == 2 && rank_diff == 0) {
+        return 150; // Aumentado de 25 para 150 - oposição é fundamental em finais
+    }
+
+    // Oposição diagonal - valor também aumentado
+    if file_diff == 2 && rank_diff == 2 {
+        return 80; // Aumentado de 20 para 80 - oposição diagonal também crucial
+    }
+
+    // Oposição próxima (1 casa de distância)
+    if (file_diff == 0 && rank_diff == 1) || (file_diff == 1 && rank_diff == 0) {
+        return -10; // Estar muito próximo pode ser ruim
+    }
+
+    0
+}
+
+/// Avalia oposição à distância
+fn evaluate_distant_opposition(our_king: u8, enemy_king: u8) -> i32 {
+    let our_file = our_king % 8;
+    let our_rank = our_king / 8;
+    let enemy_file = enemy_king % 8;
+    let enemy_rank = enemy_king / 8;
+
+    let file_diff = (our_file as i32 - enemy_file as i32).abs();
+    let rank_diff = (our_rank as i32 - enemy_rank as i32).abs();
+
+    // Oposição à distância horizontal
+    if file_diff == 0 && rank_diff >= 4 && rank_diff % 2 == 0 {
+        return 15 - (rank_diff - 4) * 2; // Menor valor para distâncias maiores
+    }
+
+    // Oposição à distância vertical
+    if rank_diff == 0 && file_diff >= 4 && file_diff % 2 == 0 {
+        return 15 - (file_diff - 4) * 2;
+    }
+
+    // Oposição à distância diagonal
+    if file_diff == rank_diff && file_diff >= 4 && file_diff % 2 == 0 {
+        return 12 - (file_diff - 4) * 2;
+    }
+
+    0
+}
+
+/// Avalia potencial de triangulação
+fn evaluate_triangulation_potential(board: &Board, color: Color, our_king: u8, enemy_king: u8) -> i32 {
+    // Triangulação é útil quando:
+    // 1. Há poucas peças no tabuleiro
+    // 2. O rei precisa perder tempo para forçar o oponente a se mover primeiro
+    // 3. Há espaço para manobras
+
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+
+    // Só é relevante em endgames muito simples
+    if total_pieces > 6 {
+        return 0;
+    }
+
+    let our_file = our_king % 8;
+    let our_rank = our_king / 8;
+    let enemy_file = enemy_king % 8;
+    let enemy_rank = enemy_king / 8;
+
+    // Verifica se há espaço para triangulação (rei tem pelo menos 3 casas livres)
+    let king_area = crate::moves::king::get_king_attacks_lookup(our_king);
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let all_pieces = board.white_pieces | board.black_pieces;
+
+    let free_squares = king_area & !(all_pieces);
+    let mobility = free_squares.count_ones();
+
+    if mobility < 3 {
+        return 0; // Não há espaço suficiente para triangular
+    }
+
+    // Verifica se estamos em oposição ou próximos dela
+    let distance = eval_utils::calculate_square_distance(our_king, enemy_king);
+
+    if distance == 2 || distance == 3 {
+        // Situação ideal para triangulação
+        let space_bonus = (mobility as i32 - 3) * 2;
+        return 8 + space_bonus;
+    }
+
+    0
+}
+
+/// Avalia potencial de outflanking (contorno do rei inimigo)
+fn evaluate_outflanking(our_king: u8, enemy_king: u8) -> i32 {
+    let our_file = our_king % 8;
+    let our_rank = our_king / 8;
+    let enemy_file = enemy_king % 8;
+    let enemy_rank = enemy_king / 8;
+
+    let file_diff = our_file as i32 - enemy_file as i32;
+    let rank_diff = our_rank as i32 - enemy_rank as i32;
+
+    // Outflanking horizontal
+    if rank_diff.abs() <= 1 && file_diff.abs() >= 2 {
+        let flank_advantage = file_diff.abs() - 1;
+        return flank_advantage * 3;
+    }
+
+    // Outflanking vertical
+    if file_diff.abs() <= 1 && rank_diff.abs() >= 2 {
+        let flank_advantage = rank_diff.abs() - 1;
+        return flank_advantage * 3;
+    }
+
+    0
+}
+
+/// Avalia potencial de zugzwang
+fn evaluate_zugzwang_potential(board: &Board, color: Color) -> i32 {
+    // Zugzwang é mais provável quando:
+    // 1. Poucas peças no tabuleiro
+    // 2. Posição fechada/bloqueada
+    // 3. Ambos os reis têm mobilidade limitada
+
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+
+    if total_pieces > 8 {
+        return 0; // Zugzwang é raro em posições com muitas peças
+    }
+
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+
+    let our_king = board.kings & our_pieces;
+    let enemy_king = board.kings & enemy_pieces;
+
+    if our_king == 0 || enemy_king == 0 {
+        return 0;
+    }
+
+    let our_king_sq = our_king.trailing_zeros() as u8;
+    let enemy_king_sq = enemy_king.trailing_zeros() as u8;
+
+    // Calcula mobilidade dos reis
+    let our_king_attacks = crate::moves::king::get_king_attacks_lookup(our_king_sq);
+    let enemy_king_attacks = crate::moves::king::get_king_attacks_lookup(enemy_king_sq);
+
+    let all_pieces = board.white_pieces | board.black_pieces;
+    let our_mobility = (our_king_attacks & !our_pieces & !all_pieces).count_ones();
+    let enemy_mobility = (enemy_king_attacks & !enemy_pieces & !all_pieces).count_ones();
+
+    // Zugzwang é mais provável quando ambos têm mobilidade limitada
+    if our_mobility <= 3 && enemy_mobility <= 3 {
+        let mobility_factor = (6 - our_mobility - enemy_mobility) as i32;
+        let piece_factor = (8 - total_pieces as i32) / 2;
+        return mobility_factor + piece_factor;
+    }
+
+    0
+}
+
+/// Avalia regra do quadrado para peões passados
+fn evaluate_square_rule(board: &Board, color: Color, our_king: u8, enemy_king: u8) -> i32 {
+    let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+
+    if enemy_pawns == 0 {
+        return 0;
+    }
+
+    let mut square_rule_score = 0;
+    let enemy_pawn_squares = eval_utils::get_set_bits(enemy_pawns);
+
+    for &pawn_sq in &enemy_pawn_squares {
+        // Verifica se é peão passado (simplificado)
+        if is_likely_passed_pawn(pawn_sq, !color, board) {
+            let pawn_file = pawn_sq % 8;
+            let pawn_rank = pawn_sq / 8;
+
+            // Calcula distância até a promoção
+            let promotion_distance = if color == Color::White {
+                pawn_rank as i32 // Peão preto, distância até rank 0
+            } else {
+                7 - pawn_rank as i32 // Peão branco, distância até rank 7
+            };
+
+            // Calcula se nosso rei pode alcançar o quadrado
+            let promotion_sq = if color == Color::White {
+                pawn_file // Rank 0
+            } else {
+                56 + pawn_file // Rank 7
+            };
+
+            let king_distance = eval_utils::calculate_square_distance(our_king, promotion_sq);
+
+            // Regra do quadrado: se rei pode chegar antes do peão promover
+            if king_distance <= promotion_distance {
+                square_rule_score += 15; // Bônus por poder parar o peão
+            } else {
+                square_rule_score -= 20 * (king_distance - promotion_distance); // Penalidade
+            }
+        }
+    }
+
+    square_rule_score
+}
+
+/// Verifica se peão é provavelmente passado (versão simplificada)
+fn is_likely_passed_pawn(pawn_sq: u8, pawn_color: Color, board: &Board) -> bool {
+    let file = pawn_sq % 8;
+    let rank = pawn_sq / 8;
+
+    let enemy_pawns = board.pawns & if pawn_color == Color::White { board.black_pieces } else { board.white_pieces };
+
+    // Verifica arquivos adjacentes e o próprio arquivo
+    for check_file in (file.saturating_sub(1))..=(file.saturating_add(1)).min(7) {
+        let file_mask = 0x0101010101010101u64 << check_file;
+        let file_pawns = enemy_pawns & file_mask;
+
+        if file_pawns != 0 {
+            let pawn_squares = eval_utils::get_set_bits(file_pawns);
+            for enemy_sq in pawn_squares {
+                let enemy_rank = enemy_sq / 8;
+
+                let blocks_advancement = if pawn_color == Color::White {
+                    enemy_rank > rank // Peão inimigo está à frente
+                } else {
+                    enemy_rank < rank
+                };
+
+                if blocks_advancement {
+                    return false; // Há um peão inimigo bloqueando
+                }
+            }
+        }
+    }
+
+    true // Provavelmente passado
 }
 
 /// Detector de padrões de mate
-pub struct MatePatternDetector {
-    // Cache de padrões detectados
-}
+pub struct MatePatternDetector;
 
 impl MatePatternDetector {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
     
-    /// Detecta padrão de mate na posição
-    pub fn detect_mate_pattern(&self, board: &Board) -> Option<MatePattern> {
-        // Ordem de prioridade: mates em 1, depois em 2, etc.
+    pub fn detect_mate_pattern(&self, board: &Board) -> Option<MatePatternResult> {
+        let patterns = evaluate_endgame_patterns(board, Color::White);
         
-        // 1. Back rank mate (mate do corredor)
-        if let Some(pattern) = self.detect_back_rank_mate(board) {
-            return Some(pattern);
-        }
-        
-        // 2. Smothered mate (mate abafado)
-        if let Some(pattern) = self.detect_smothered_mate(board) {
-            return Some(pattern);
-        }
-        
-        // 3. Two rooks mate (mate com duas torres)
-        if let Some(pattern) = self.detect_two_rooks_mate(board) {
-            return Some(pattern);
-        }
-        
-        // 4. Queen + Rook mate
-        if let Some(pattern) = self.detect_queen_rook_mate(board) {
-            return Some(pattern);
-        }
-        
-        // 5. Ladder mate (torre)
-        if let Some(pattern) = self.detect_ladder_mate(board) {
-            return Some(pattern);
-        }
-        
-        None
-    }
-    
-    /// Detecta mate do corredor conforme exemplo da análise
-    pub fn detect_back_rank_mate(&self, board: &Board) -> Option<MatePattern> {
-        let to_move = board.to_move;
-        let enemy_color = !to_move;
-        
-        let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-        let our_pieces = if to_move == Color::White { board.white_pieces } else { board.black_pieces };
-        
-        let enemy_king = board.kings & enemy_pieces;
-        if enemy_king == 0 { return None; }
-        
-        let enemy_king_sq = enemy_king.trailing_zeros() as u8;
-        let enemy_king_rank = enemy_king_sq / 8;
-        
-        // Verifica se rei está na última fila para seu lado
-        let back_rank = if enemy_color == Color::White { 0 } else { 7 };
-        if enemy_king_rank != back_rank { return None; }
-        
-        // Rei na última fila: ✓ (conforme análise)
-        
-        // Verifica se está bloqueado por próprios peões
-        let enemy_pawns = board.pawns & enemy_pieces;
-        let blocking_pawns = self.get_blocking_pawns(enemy_king_sq, enemy_pawns, enemy_color);
-        
-        if blocking_pawns.count_ones() < 2 { return None; }
-        // Bloqueado por próprios peões: ✓ (conforme análise)
-        
-        // Verifica se temos torres controlando a fila
-        let our_rooks = board.rooks & our_pieces;
-        let our_queens = board.queens & our_pieces; // Dama também pode dar mate do corredor
-        
-        let controlling_pieces = self.get_pieces_controlling_rank(back_rank, our_rooks | our_queens, board);
-        if controlling_pieces.count_ones() == 0 { return None; }
-        // Torres controlando fila: ✓ (conforme análise)
-        
-        // Verifica se há mate em 1
-        let legal_moves = board.generate_legal_moves();
-        for mv in &legal_moves {
-            if self.is_back_rank_mate_move(board, *mv, enemy_king_sq, back_rank) {
-                return Some(MatePattern {
-                    pattern_type: MatePatternType::BackRankMate,
-                    mate_in: 1,
-                    evaluation: 10000 - 1, // Mate em 1
-                    key_squares: vec![enemy_king_sq],
-                    forcing_moves: vec![*mv],
-                    description: format!("Back rank mate with {:?}", mv),
-                });
-            }
-        }
-        
-        // Se não mate em 1, verifica mate em 2
-        if self.has_back_rank_mate_threat(board, enemy_king_sq, back_rank) {
-            return Some(MatePattern {
-                pattern_type: MatePatternType::BackRankMate,
-                mate_in: 2,
-                evaluation: 10000 - 2, // Mate em 2
-                key_squares: vec![enemy_king_sq],
-                forcing_moves: vec![],
-                description: "Back rank mate threat".to_string(),
-            });
-        }
-        
-        None
-    }
-    
-    /// Detecta mate abafado
-    pub fn detect_smothered_mate(&self, board: &Board) -> Option<MatePattern> {
-        let to_move = board.to_move;
-        let enemy_color = !to_move;
-        
-        let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-        let our_pieces = if to_move == Color::White { board.white_pieces } else { board.black_pieces };
-        
-        let enemy_king = board.kings & enemy_pieces;
-        if enemy_king == 0 { return None; }
-        
-        let enemy_king_sq = enemy_king.trailing_zeros() as u8;
-        let our_knights = board.knights & our_pieces;
-        
-        if our_knights == 0 { return None; }
-        
-        // Verifica se rei inimigo está "abafado" por suas próprias peças
-        let king_moves = crate::moves::king::get_king_attacks_lookup(enemy_king_sq);
-        let blocked_squares = king_moves & enemy_pieces;
-        
-        if blocked_squares.count_ones() >= 6 { // Rei muito limitado
-            // Verifica se cavalo pode dar xeque mate
-            let legal_moves = board.generate_legal_moves();
-            for mv in &legal_moves {
-                // Verifica se movimento é de cavalo
-                let piece_kind = board.get_piece_on_square(mv.from);
-                if let Some(kind) = piece_kind {
-                    if kind == PieceKind::Knight && self.gives_checkmate(board, *mv) {
-                        return Some(MatePattern {
-                            pattern_type: MatePatternType::SmotheredMate,
-                            mate_in: 1,
-                            evaluation: 10000 - 1,
-                            key_squares: vec![enemy_king_sq],
-                            forcing_moves: vec![*mv],
-                            description: "Smothered mate with knight".to_string(),
-                        });
-                    }
-                }
-            }
-        }
-        
-        None
-    }
-    
-    /// Detecta mate com duas torres
-    pub fn detect_two_rooks_mate(&self, board: &Board) -> Option<MatePattern> {
-        let to_move = board.to_move;
-        let our_pieces = if to_move == Color::White { board.white_pieces } else { board.black_pieces };
-        let our_rooks = board.rooks & our_pieces;
-        
-        if our_rooks.count_ones() < 2 { return None; }
-        
-        let enemy_color = !to_move;
-        let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-        let enemy_king = board.kings & enemy_pieces;
-        
-        if enemy_king == 0 { return None; }
-        
-        let enemy_king_sq = enemy_king.trailing_zeros() as u8;
-        
-        // Verifica se torres podem dar mate escada
-        if self.can_ladder_mate_with_rooks(board, enemy_king_sq) {
-            return Some(MatePattern {
-                pattern_type: MatePatternType::TwoRooksMate,
-                mate_in: self.calculate_ladder_mate_distance(enemy_king_sq),
-                evaluation: 9500,
-                key_squares: vec![enemy_king_sq],
-                forcing_moves: vec![],
-                description: "Two rooks ladder mate".to_string(),
-            });
-        }
-        
-        None
-    }
-    
-    /// Detecta mate com dama e torre
-    pub fn detect_queen_rook_mate(&self, board: &Board) -> Option<MatePattern> {
-        let to_move = board.to_move;
-        let our_pieces = if to_move == Color::White { board.white_pieces } else { board.black_pieces };
-        let our_queens = board.queens & our_pieces;
-        let our_rooks = board.rooks & our_pieces;
-        
-        if our_queens == 0 || our_rooks == 0 { return None; }
-        
-        let enemy_color = !to_move;
-        let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-        let enemy_king = board.kings & enemy_pieces;
-        
-        if enemy_king == 0 { return None; }
-        
-        let enemy_king_sq = enemy_king.trailing_zeros() as u8;
-        let distance_to_edge = self.calculate_distance_to_edge(enemy_king_sq);
-        
-        if distance_to_edge <= 1 { // Rei próximo da borda
-            return Some(MatePattern {
-                pattern_type: MatePatternType::QueenRookMate,
-                mate_in: 3,
-                evaluation: 9700,
-                key_squares: vec![enemy_king_sq],
-                forcing_moves: vec![],
-                description: "Queen and rook mate".to_string(),
-            });
-        }
-        
-        None
-    }
-    
-    /// Detecta mate escada
-    pub fn detect_ladder_mate(&self, board: &Board) -> Option<MatePattern> {
-        let to_move = board.to_move;
-        let our_pieces = if to_move == Color::White { board.white_pieces } else { board.black_pieces };
-        let our_rooks = board.rooks & our_pieces;
-        let our_queens = board.queens & our_pieces;
-        
-        if (our_rooks | our_queens).count_ones() < 1 { return None; }
-        
-        let enemy_color = !to_move;
-        let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-        let enemy_king = board.kings & enemy_pieces;
-        
-        if enemy_king == 0 { return None; }
-        
-        let enemy_king_sq = enemy_king.trailing_zeros() as u8;
-        
-        // Verifica técnica de escada
-        if self.is_ladder_mate_position(board, enemy_king_sq) {
-            let mate_distance = self.calculate_ladder_mate_distance(enemy_king_sq);
-            return Some(MatePattern {
-                pattern_type: MatePatternType::LadderMate,
-                mate_in: mate_distance,
-                evaluation: 9000 + (10 - mate_distance as i32),
-                key_squares: vec![enemy_king_sq],
-                forcing_moves: vec![],
-                description: "Ladder mate technique".to_string(),
-            });
-        }
-        
-        None
-    }
-    
-    // ========== FUNÇÕES AUXILIARES ==========
-    
-    fn get_blocking_pawns(&self, king_sq: u8, pawns: Bitboard, color: Color) -> Bitboard {
-        let king_file = king_sq % 8;
-        let king_rank = king_sq / 8;
-        
-        // Peões na frente do rei que o bloqueiam
-        let front_rank = if color == Color::White { king_rank + 1 } else { king_rank.saturating_sub(1) };
-        
-        let mut blocking = 0u64;
-        for file_offset in -1..=1i8 {
-            let file = (king_file as i8 + file_offset).clamp(0, 7) as u8;
-            let square = file + front_rank * 8;
-            if pawns & (1u64 << square) != 0 {
-                blocking |= 1u64 << square;
-            }
-        }
-        
-        blocking
-    }
-    
-    fn get_pieces_controlling_rank(&self, rank: u8, pieces: Bitboard, board: &Board) -> Bitboard {
-        let mut controlling = 0u64;
-        let mut pieces_bb = pieces;
-        
-        while pieces_bb != 0 {
-            let piece_sq = pieces_bb.trailing_zeros() as u8;
-            pieces_bb &= pieces_bb - 1;
-            
-            let piece_rank = piece_sq / 8;
-            let piece_file = piece_sq % 8;
-            
-            // Verifica se peça controla a fila
-            if piece_rank == rank || self.piece_attacks_rank(piece_sq, rank, board) {
-                controlling |= 1u64 << piece_sq;
-            }
-        }
-        
-        controlling
-    }
-    
-    fn piece_attacks_rank(&self, piece_sq: u8, target_rank: u8, board: &Board) -> bool {
-        // Simplificado: verifica se torre/dama pode atacar a fila
-        let piece_file = piece_sq % 8;
-        
-        // Para torres e damas, verifica se há caminho livre até a fila
-        for file in 0..8 {
-            let target_sq = file + target_rank * 8;
-            if self.has_clear_path_rook(piece_sq, target_sq, board) {
-                return true;
-            }
-        }
-        
-        false
-    }
-    
-    fn has_clear_path_rook(&self, from: u8, to: u8, board: &Board) -> bool {
-        let from_file = from % 8;
-        let from_rank = from / 8;
-        let to_file = to % 8;
-        let to_rank = to / 8;
-        
-        // Torres se movem em linha reta
-        if from_file != to_file && from_rank != to_rank {
-            return false;
-        }
-        
-        let all_pieces = board.white_pieces | board.black_pieces;
-        
-        if from_rank == to_rank {
-            // Movimento horizontal
-            let start_file = from_file.min(to_file);
-            let end_file = from_file.max(to_file);
-            for file in (start_file + 1)..end_file {
-                let sq = file + from_rank * 8;
-                if all_pieces & (1u64 << sq) != 0 {
-                    return false;
-                }
-            }
+        if patterns.total_score() > 50 {
+            Some(MatePatternResult {
+                evaluation: patterns.total_score() * 10,
+                mate_in: 5,
+                pattern_type: MatePatternType::Endgame,
+            })
         } else {
-            // Movimento vertical
-            let start_rank = from_rank.min(to_rank);
-            let end_rank = from_rank.max(to_rank);
-            for rank in (start_rank + 1)..end_rank {
-                let sq = from_file + rank * 8;
-                if all_pieces & (1u64 << sq) != 0 {
-                    return false;
-                }
-            }
+            None
         }
-        
-        true
-    }
-    
-    fn is_back_rank_mate_move(&self, board: &Board, mv: Move, enemy_king_sq: u8, back_rank: u8) -> bool {
-        // Verifica se movimento dá mate na última fila
-        let mut test_board = *board;
-        let _undo = test_board.make_move_fast(mv);
-        
-        test_board.is_checkmate()
-    }
-    
-    fn has_back_rank_mate_threat(&self, board: &Board, enemy_king_sq: u8, back_rank: u8) -> bool {
-        // Verifica se há ameaça de mate do corredor
-        let king_file = enemy_king_sq % 8;
-        
-        // Busca por escape squares
-        let escape_squares = [
-            if king_file > 0 { Some(king_file - 1 + back_rank * 8) } else { None },
-            if king_file < 7 { Some(king_file + 1 + back_rank * 8) } else { None },
-        ];
-        
-        let mut has_escape = false;
-        for escape in escape_squares.iter().flatten() {
-            if !self.is_square_attacked_by_enemy(board, *escape) {
-                has_escape = true;
-                break;
-            }
-        }
-        
-        !has_escape
-    }
-    
-    fn gives_checkmate(&self, board: &Board, mv: Move) -> bool {
-        let mut test_board = *board;
-        let _undo = test_board.make_move_fast(mv);
-        test_board.is_checkmate()
-    }
-    
-    fn can_ladder_mate_with_rooks(&self, board: &Board, enemy_king_sq: u8) -> bool {
-        let distance_to_edge = self.calculate_distance_to_edge(enemy_king_sq);
-        distance_to_edge <= 3 // Próximo o suficiente para mate escada
-    }
-    
-    fn is_ladder_mate_position(&self, board: &Board, enemy_king_sq: u8) -> bool {
-        let distance_to_edge = self.calculate_distance_to_edge(enemy_king_sq);
-        distance_to_edge <= 2
-    }
-    
-    fn calculate_ladder_mate_distance(&self, enemy_king_sq: u8) -> u8 {
-        let distance_to_edge = self.calculate_distance_to_edge(enemy_king_sq);
-        distance_to_edge + 2 // Estimativa conservadora
-    }
-    
-    fn calculate_distance_to_edge(&self, square: u8) -> u8 {
-        let file = square % 8;
-        let rank = square / 8;
-        let dist_to_files = file.min(7 - file);
-        let dist_to_ranks = rank.min(7 - rank);
-        dist_to_files.min(dist_to_ranks)
-    }
-    
-    fn is_square_attacked_by_enemy(&self, board: &Board, square: u8) -> bool {
-        // Simplificado: verifica se quadrado é atacado pelo oponente
-        let enemy_color = !board.to_move;
-        board.is_square_attacked_by(square, enemy_color)
     }
 }
 
@@ -437,4 +341,36 @@ impl Default for MatePatternDetector {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MatePatternResult {
+    pub evaluation: i32,
+    pub mate_in: u8,
+    pub pattern_type: MatePatternType,
+}
+
+#[derive(Debug, Clone)]
+pub enum MatePatternType {
+    Endgame,
+    Tactical,
+    Positional,
+}
+
+/// Avalia melhoria na atividade do rei baseada em padrões avançados
+pub fn evaluate_king_activity_advanced(board: &Board, color: Color) -> i32 {
+    let patterns = evaluate_endgame_patterns(board, color);
+
+    // Aplica pesos aos padrões
+    let mut activity_score = 0;
+
+    activity_score += patterns.king_opposition;
+    activity_score += patterns.distant_opposition;
+    activity_score += patterns.triangulation;
+    activity_score += patterns.outflanking;
+    activity_score += patterns.zugzwang_potential;
+    activity_score += patterns.square_rule;
+
+    // Normaliza o score para não dominar outros fatores
+    activity_score.clamp(-50, 50)
 }
