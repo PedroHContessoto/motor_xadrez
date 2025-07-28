@@ -130,7 +130,9 @@ impl MobilityContext {
             super::game_phase::GamePhase::LateMiddlegame => GamePhase::MiddleGame,
             super::game_phase::GamePhase::EarlyEndgame |
             super::game_phase::GamePhase::Endgame |
-            super::game_phase::GamePhase::PureEndgame => GamePhase::Endgame,
+            super::game_phase::GamePhase::LateEndgame |
+            super::game_phase::GamePhase::PureEndgame |
+            super::game_phase::GamePhase::TheoreticalEndgame => GamePhase::Endgame,
         };
 
         MobilityContext {

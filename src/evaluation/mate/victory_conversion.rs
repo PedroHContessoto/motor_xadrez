@@ -199,7 +199,9 @@ impl VictoryConversionSystem {
         }
 
         // 2. Busca especializada apenas se critérios muito restritivos forem atendidos
-        if evaluation > 2000 || (opponent_in_check && total_pieces <= 8) {
+        // CORRIGIDO: Threshold aumentado para 3000+ e verificação de material suficiente
+        if (evaluation > 3000 && has_sufficient_mating_material(board)) || 
+           (opponent_in_check && total_pieces <= 6 && evaluation > 1500) {
             if let Some(sequence) = self.specialized_mate_search(board, safe_depth) {
                 // Valida antes de retornar
                 if self.validate_mate_sequence(board, &sequence) {
@@ -211,10 +213,14 @@ impl VictoryConversionSystem {
         None
     }
 
-    /// Busca especializada otimizada para mates (versão conservadora)
+    /// Busca especializada otimizada para mates (versão melhorada)
     fn specialized_mate_search(&self, board: &Board, max_depth: u8) -> Option<MateSequence> {
-        // Apenas procura mates muito curtos (1-2 movimentos) para evitar falsos positivos
-        let conservative_depth = max_depth.min(2);
+        // CORRIGIDO: Busca até profundidade 10 em posições promissoras
+        let search_depth = if is_promising_mate_position(board) {
+            max_depth.min(10) // Busca profunda em posições promissoras
+        } else {
+            max_depth.min(5)  // Busca moderada em outras posições
+        };
         let mut cache = HashMap::new();
         
         // Verifica primeiro mate em 1
@@ -222,13 +228,10 @@ impl VictoryConversionSystem {
             return Some(sequence);
         }
         
-        // Só procura mate em 2 se há evidência forte (oponente em xeque ou pouquíssimas peças)
-        if conservative_depth >= 2 {
-            let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
-            if board.is_king_in_check(!board.to_move) || total_pieces <= 6 {
-                if let Some(sequence) = self.search_mate_at_depth(board, 2, &mut cache) {
-                    return Some(sequence);
-                }
+        // CORRIGIDO: Busca incremental até a profundidade permitida
+        for depth in 2..=search_depth {
+            if let Some(sequence) = self.search_mate_at_depth(board, depth, &mut cache) {
+                return Some(sequence);
             }
         }
 
@@ -1258,4 +1261,48 @@ fn is_back_rank_relevant(board: &Board, mv: Move) -> bool {
 fn is_knight_move(board: &Board, mv: Move) -> bool {
     let from_bb = 1u64 << mv.from;
     (board.knights & from_bb) != 0
+}
+
+/// NOVA: Verifica se a posição tem material suficiente para mate
+fn has_sufficient_mating_material(board: &Board) -> bool {
+    let our_pieces = if board.to_move == Color::White { board.white_pieces } else { board.black_pieces };
+    
+    let queens = (board.queens & our_pieces).count_ones();
+    let rooks = (board.rooks & our_pieces).count_ones();
+    let bishops = (board.bishops & our_pieces).count_ones();
+    let knights = (board.knights & our_pieces).count_ones();
+    
+    // Material suficiente para mate
+    queens > 0 || 
+    rooks > 0 || 
+    bishops >= 2 || 
+    (bishops >= 1 && knights >= 1) ||
+    knights >= 3
+}
+
+/// NOVA: Verifica se a posição é promissora para busca de mate
+fn is_promising_mate_position(board: &Board) -> bool {
+    let enemy_color = !board.to_move;
+    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_king = board.kings & enemy_pieces;
+    
+    if enemy_king == 0 { return false; }
+    
+    let king_sq = enemy_king.trailing_zeros() as u8;
+    let king_file = king_sq % 8;
+    let king_rank = king_sq / 8;
+    
+    // Rei próximo da borda
+    let near_edge = king_file <= 1 || king_file >= 6 || king_rank <= 1 || king_rank >= 6;
+    
+    // Rei com pouca mobilidade
+    let king_attacks = crate::moves::king::get_king_attacks_lookup(king_sq);
+    let all_pieces = board.white_pieces | board.black_pieces;
+    let safe_squares = king_attacks & !all_pieces;
+    let low_mobility = safe_squares.count_ones() <= 3;
+    
+    // Rei em xeque
+    let in_check = board.is_king_in_check(enemy_color);
+    
+    near_edge || low_mobility || in_check
 }

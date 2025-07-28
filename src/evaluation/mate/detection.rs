@@ -81,7 +81,7 @@ impl MateDetector {
         self.nodes_searched = 0;
 
         // NOVA: Verifica cache especializado de mate primeiro
-        if let Some(cached) = crate::evaluation::cache::MateCache::get(board.zobrist_hash) {
+        if let Some(cached) = super::cache::MateCache::get(board.zobrist_hash) {
             if cached.search_depth >= max_depth.min(10) {
                 if let Some(mate_in) = cached.mate_in {
                     let mate_pattern = self.identify_mate_pattern(board, &cached.best_moves);
@@ -105,8 +105,8 @@ impl MateDetector {
         // Análise prévia de endgame para guiar a busca
         let endgame_analysis = self.analyze_endgame_position(board);
         
-        // NOVA: Integração com mate search do endgame folder
-        if let Some(endgame_mate) = crate::evaluation::endgame::mate_search::integrate_mate_search_with_endgame(board) {
+        // NOVA: Integração com mate search  
+        if let Some(endgame_mate) = super::search::integrate_mate_search_with_endgame(board) {
             let mate_pattern = self.identify_mate_pattern(board, &endgame_mate.moves);
             let endgame_quality = if endgame_mate.is_forced { EndgameQuality::Perfect } else { EndgameQuality::Excellent };
             
@@ -149,7 +149,7 @@ impl MateDetector {
 
             if let Some(mate_info) = self.search_mate_at_depth(board, depth, tt, &endgame_analysis) {
                 // NOVA: Armazena resultado no cache especializado de mate
-                crate::evaluation::cache::MateCache::store(
+                super::cache::MateCache::store(
                     board.zobrist_hash,
                     Some(mate_info.mate_in_moves),
                     mate_info.best_sequence.clone(),
@@ -162,7 +162,7 @@ impl MateDetector {
         }
 
         // NOVA: Armazena no cache que não foi encontrado mate nesta profundidade
-        crate::evaluation::cache::MateCache::store(
+        super::cache::MateCache::store(
             board.zobrist_hash,
             None,
             vec![],

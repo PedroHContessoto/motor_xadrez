@@ -86,7 +86,7 @@ pub fn evaluate_material_and_pst(board: &Board, color: Color, game_phase: &GameP
 
     // Escolhe tabela do rei baseada na fase
     let king_table = match game_phase {
-        GamePhase::EarlyEndgame | GamePhase::Endgame | GamePhase::PureEndgame => &KING_TABLE_ENDGAME,
+        GamePhase::EarlyEndgame | GamePhase::Endgame | GamePhase::LateEndgame | GamePhase::PureEndgame | GamePhase::TheoreticalEndgame => &KING_TABLE_ENDGAME,
         _ => &KING_TABLE_MIDGAME,
     };
 
@@ -125,7 +125,7 @@ fn evaluate_center_control(board: &Board, color: Color, game_phase: &GamePhase) 
         GamePhase::EarlyMiddlegame => 1.1,
         GamePhase::Middlegame => 1.0,
         GamePhase::LateMiddlegame => 0.9,
-        GamePhase::EarlyEndgame | GamePhase::Endgame | GamePhase::PureEndgame => 0.8, // Reduzido de 1.0 para 0.8
+        GamePhase::EarlyEndgame | GamePhase::Endgame | GamePhase::LateEndgame | GamePhase::PureEndgame | GamePhase::TheoreticalEndgame => 0.8, // Reduzido de 1.0 para 0.8
     };
 
     // Peões no centro
@@ -167,7 +167,9 @@ fn evaluate_knights_enhanced(board: &Board, mut knight_bb: Bitboard, color: Colo
                 GamePhase::LateMiddlegame => 35,
                 GamePhase::EarlyEndgame => 38,
                 GamePhase::Endgame => 40,
+                GamePhase::LateEndgame => 42,
                 GamePhase::PureEndgame => 45, // Mais valioso no endgame
+                GamePhase::TheoreticalEndgame => 50, // Máximo no final teórico
             };
             score += outpost_bonus;
         }

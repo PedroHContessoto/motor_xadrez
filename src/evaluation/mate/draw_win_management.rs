@@ -1,8 +1,8 @@
 // Sistema avançado para evitar empates quando ganhando e buscar empates quando perdendo
 
 use crate::{board::Board, evaluation, types::{Color, Move, PieceKind}};
-use super::endgame::patterns::{evaluate_endgame_patterns, EndgamePatterns};
-use super::material::MATERIAL_VALUES;
+use crate::evaluation::endgame::patterns::{evaluate_endgame_patterns, EndgamePatterns};
+use crate::evaluation::material::MATERIAL_VALUES;
 
 /// Contexto para decisões de empate/vitória
 #[derive(Debug, Clone)]

@@ -2,7 +2,7 @@
 use crate::board::Board;
 use crate::types::{Color, Bitboard};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GamePhase {
     Opening,
     EarlyMiddlegame,
@@ -10,7 +10,9 @@ pub enum GamePhase {
     LateMiddlegame,
     EarlyEndgame,
     Endgame,
-    PureEndgame,
+    LateEndgame,        // Nova fase: 5-8 peças
+    PureEndgame,        // <5 peças
+    TheoreticalEndgame, // Posições de tablebase conhecidas
 }
 
 /// Sistema de avaliação dinâmica com pesos ajustáveis
@@ -135,14 +137,34 @@ pub fn detect_game_phase_revolutionary(board: &Board) -> GamePhaseInfo {
                       centralization_score * CENTRALIZATION_WEIGHT).clamp(0.0, 1.0);
     
     // Determine discrete phase
-    let phase = match phase_value {
-        x if x < 0.10 => GamePhase::Opening,
-        x if x < 0.25 => GamePhase::EarlyMiddlegame,
-        x if x < 0.50 => GamePhase::Middlegame,
-        x if x < 0.70 => GamePhase::LateMiddlegame,
-        x if x < 0.85 => GamePhase::EarlyEndgame,
-        x if x < 0.95 => GamePhase::Endgame,
-        _ => GamePhase::PureEndgame,
+    // Primeiro verifica critérios especiais baseados em contagem de peças
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    let phase = if total_pieces <= 4 {
+        // Verifica se é posição teórica conhecida
+        if is_theoretical_position(board) {
+            GamePhase::TheoreticalEndgame
+        } else {
+            GamePhase::PureEndgame
+        }
+    } else if total_pieces <= 8 {
+        GamePhase::LateEndgame
+    } else {
+        // Usa sistema híbrido: phase_value + piece count
+        match phase_value {
+            x if x < 0.10 => GamePhase::Opening,
+            x if x < 0.25 => GamePhase::EarlyMiddlegame,
+            x if x < 0.50 => GamePhase::Middlegame,
+            x if x < 0.70 => GamePhase::LateMiddlegame,
+            x if x < 0.85 => GamePhase::EarlyEndgame,
+            x if x < 0.95 => {
+                // Refina baseado em contagem de peças
+                if total_pieces <= 12 { GamePhase::Endgame } else { GamePhase::EarlyEndgame }
+            },
+            _ => {
+                // Para valores muito altos, usa contagem de peças
+                if total_pieces <= 8 { GamePhase::LateEndgame } else { GamePhase::Endgame }
+            }
+        }
     };
     
     // Calculate transition smoothness and confidence
@@ -1043,4 +1065,85 @@ fn calculate_detailed_material(board: &Board, color: Color) -> (f32, f32, f32, f
     let pawns = (board.pawns & pieces).count_ones() as f32;
     
     (minor_pieces, rooks, queens, pawns)
+}
+
+/// Verifica se a posição é um final teórico conhecido
+fn is_theoretical_position(board: &Board) -> bool {
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    if total_pieces > 5 { return false; }
+    
+    let white_material = board.white_pieces & !board.kings;
+    let black_material = board.black_pieces & !board.kings;
+    let white_count = white_material.count_ones();
+    let black_count = black_material.count_ones();
+    
+    // K vs K
+    if white_count == 0 && black_count == 0 {
+        return true;
+    }
+    
+    // Material insuficiente: KN vs K, KB vs K (sem peões)
+    if (white_count == 1 && black_count == 0) || (white_count == 0 && black_count == 1) {
+        let stronger_material = if white_count > 0 { white_material } else { black_material };
+        let is_knight = (stronger_material & board.knights) != 0;
+        let is_bishop = (stronger_material & board.bishops) != 0;
+        let no_pawns = board.pawns == 0;
+        
+        if no_pawns && (is_knight || is_bishop) {
+            return true;
+        }
+    }
+    
+    // Finais teóricos básicos com material suficiente para mate
+    if (white_count == 1 && black_count == 0) || (white_count == 0 && black_count == 1) {
+        let stronger_material = if white_count > 0 { white_material } else { black_material };
+        let has_queen = (stronger_material & board.queens) != 0;
+        let has_rook = (stronger_material & board.rooks) != 0;
+        let has_pawn = (stronger_material & board.pawns) != 0;
+        
+        if has_queen || has_rook || has_pawn {
+            return true; // KQ vs K, KR vs K, KP vs K
+        }
+    }
+    
+    // Finais com duas peças: KBB vs K, KBN vs K, KNN vs K
+    if (white_count == 2 && black_count == 0) || (white_count == 0 && black_count == 2) {
+        return true;
+    }
+    
+    false
+}
+
+/// Converte GamePhase para DetailedGamePhase (compatibilidade)
+pub fn to_detailed_game_phase(phase: GamePhase) -> crate::evaluation::endgame::DetailedGamePhase {
+    use crate::evaluation::endgame::DetailedGamePhase;
+    
+    match phase {
+        GamePhase::Opening => DetailedGamePhase::Opening,
+        GamePhase::EarlyMiddlegame => DetailedGamePhase::EarlyMiddlegame,
+        GamePhase::Middlegame => DetailedGamePhase::Middlegame,
+        GamePhase::LateMiddlegame => DetailedGamePhase::LateMiddlegame,
+        GamePhase::EarlyEndgame => DetailedGamePhase::EarlyEndgame,
+        GamePhase::Endgame => DetailedGamePhase::Endgame,
+        GamePhase::LateEndgame => DetailedGamePhase::LateEndgame,
+        GamePhase::PureEndgame => DetailedGamePhase::PureEndgame,
+        GamePhase::TheoreticalEndgame => DetailedGamePhase::TheoreticalEndgame,
+    }
+}
+
+/// Converte DetailedGamePhase para GamePhase (compatibilidade reversa)
+pub fn from_detailed_game_phase(detailed_phase: crate::evaluation::endgame::DetailedGamePhase) -> GamePhase {
+    use crate::evaluation::endgame::DetailedGamePhase;
+    
+    match detailed_phase {
+        DetailedGamePhase::Opening => GamePhase::Opening,
+        DetailedGamePhase::EarlyMiddlegame => GamePhase::EarlyMiddlegame,
+        DetailedGamePhase::Middlegame => GamePhase::Middlegame,
+        DetailedGamePhase::LateMiddlegame => GamePhase::LateMiddlegame,
+        DetailedGamePhase::EarlyEndgame => GamePhase::EarlyEndgame,  
+        DetailedGamePhase::Endgame => GamePhase::Endgame,
+        DetailedGamePhase::LateEndgame => GamePhase::LateEndgame,
+        DetailedGamePhase::PureEndgame => GamePhase::PureEndgame,
+        DetailedGamePhase::TheoreticalEndgame => GamePhase::TheoreticalEndgame,
+    }
 }

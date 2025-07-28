@@ -2002,9 +2002,9 @@ impl MetaEvaluator {
                 
                 // Verifica se rei está passivo
                 if self.is_king_passive_endgame(board, color) {
-                    let mut vuln = VulnerabilityInfo::new(VulnerabilityType::EndgameWeaknesses, VulnerabilitySeverity::Moderate);
+                    let mut vuln = VulnerabilityInfo::new(VulnerabilityType::EndgameWeaknesses, VulnerabilitySeverity::Serious);
                     vuln.description = "Rei passivo no final".to_string();
-                    vuln.impact_score = -25;
+                    vuln.impact_score = -75; // CORRIGIDO: Aumentado de -25 para -75
                     vulnerabilities.push(vuln);
                 }
 

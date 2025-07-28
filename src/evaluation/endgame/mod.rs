@@ -6,7 +6,6 @@ pub mod practical;
 pub mod patterns;
 pub mod tablebase;
 pub mod mate_evaluators;
-pub mod mate_search;
 
 use theoretical::*;
 use practical::*;
@@ -95,7 +94,19 @@ impl EndgameEvaluator {
         let phase = self.detect_game_phase(board);
         let endgame_type = self.classify_endgame(board);
         
-        // Primeiro tenta avaliação teórica exata
+        // PRIMEIRO: Usa lookup table rápido para posições conhecidas
+        if let Some(lookup_result) = self.theoretical.quick_lookup(board) {
+            return Some(EndgameEvaluation {
+                score: lookup_result.result,
+                endgame_type,
+                phase,
+                is_theoretical: lookup_result.is_theoretical_draw,
+                mate_distance: lookup_result.mate_in,
+                key_concepts: vec!["Lookup table result".to_string()],
+            });
+        }
+        
+        // Segundo tenta avaliação teórica completa
         if let Some(theoretical_eval) = self.theoretical.evaluate(board, endgame_type) {
             return Some(EndgameEvaluation {
                 score: theoretical_eval.score,
@@ -107,7 +118,7 @@ impl EndgameEvaluator {
             });
         }
         
-        // Depois tenta padrões de mate
+        // Depois tenta padrões de mate (endgame patterns)
         if let Some(mate_pattern) = self.patterns.detect_mate_pattern(board) {
             return Some(EndgameEvaluation {
                 score: mate_pattern.evaluation,

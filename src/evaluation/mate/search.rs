@@ -38,12 +38,16 @@ impl QuickMateSearcher {
         // 1. Vantagem massive (>1500cp) OU
         // 2. Oponente já em xeque OU  
         // 3. Muito poucas peças no tabuleiro (<8)
-        if evaluation.abs() < 1500 && !opponent_in_check && total_pieces > 8 {
+        if evaluation.abs() < 2500 && !opponent_in_check && total_pieces > 8 {
             return None;
         }
         
-        // Limita profundidade para busca segura
-        let safe_depth = depth.min(self.max_depth).min(3);
+        // CORRIGIDO: Profundidade melhorada para busca eficiente
+        let safe_depth = if opponent_in_check || total_pieces <= 8 {
+            depth.min(self.max_depth).min(8) // Busca mais profunda em posições promissoras
+        } else {
+            depth.min(self.max_depth).min(5) // Busca moderada em outras posições
+        };
         
         // Busca mate em profundidades crescentes
         for search_depth in 1..=safe_depth {
@@ -207,7 +211,7 @@ impl Default for QuickMateSearcher {
 /// Integração com o sistema de avaliação de endgame
 pub fn integrate_mate_search_with_endgame(board: &Board) -> Option<MateSequence> {
     // Primeiro tenta endgames teóricos
-    if let Some(endgame_result) = super::mate_evaluators::evaluate_theoretical_endgame(board) {
+    if let Some(endgame_result) = crate::evaluation::endgame::mate_evaluators::evaluate_theoretical_endgame(board) {
         if let Some(mate_distance) = endgame_result.estimated_moves_to_mate {
             // Se o endgame teórico prevê mate próximo, tenta encontrar a sequência
             if mate_distance <= 5 {

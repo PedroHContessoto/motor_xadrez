@@ -9,10 +9,9 @@ pub mod pawn_structure;
 pub mod game_phase;
 mod utils;
 pub mod meta_evaluation;
-pub mod draw_win_management;
-pub mod victory_conversion;
 pub mod cache;
-pub mod endgame;  // Novo módulo dedicado aos finais
+pub mod endgame;  // Módulo dedicado aos finais (não mate)
+pub mod mate;     // Módulo dedicado exclusivamente ao mate
 
 use crate::{board::Board, types::Color, profile, count};
 use cache::{get_cached_evaluation_with_depth, store_evaluation_with_depth};
@@ -312,7 +311,7 @@ fn evaluate_color_with_depth(board: &Board, color: Color, game_phase: &game_phas
             game_phase::GamePhase::EarlyMiddlegame | game_phase::GamePhase::Middlegame | game_phase::GamePhase::LateMiddlegame => {
                 // Middlegame focus on tactics and piece coordination
             },
-            game_phase::GamePhase::EarlyEndgame | game_phase::GamePhase::Endgame | game_phase::GamePhase::PureEndgame => {
+            game_phase::GamePhase::EarlyEndgame | game_phase::GamePhase::Endgame | game_phase::GamePhase::LateEndgame | game_phase::GamePhase::PureEndgame | game_phase::GamePhase::TheoreticalEndgame => {
                 score += evaluate_king_activity(board, color);
             },
         }

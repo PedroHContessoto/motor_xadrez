@@ -1,5 +1,6 @@
 // Avaliadores específicos para finais teóricos - implementação completa conforme análise
 use crate::{board::Board, types::{Color, Bitboard}};
+use std::sync::OnceLock;
 
 /// Resultado da avaliação teórica
 #[derive(Debug, Clone)]
@@ -9,14 +10,197 @@ pub struct TheoreticalResult {
     pub concepts: Vec<String>,
 }
 
-/// Avaliador de finais teóricos
+/// Tipo de função avaliadora para finais teóricos
+type EvalFunction = fn(&TheoreticalEvaluator, &Board) -> Option<TheoreticalResult>;
+
+/// Lookup table para finais teóricos conhecidos - evita recálculo desnecessário
+static ENDGAME_KNOWLEDGE: OnceLock<Vec<(super::EndgameType, EvalFunction)>> = OnceLock::new();
+
+/// Resultado direto de lookup para posições conhecidas
+#[derive(Debug, Clone)]
+pub struct EndgameLookupResult {
+    pub result: i32,
+    pub mate_in: Option<u8>,
+    pub is_theoretical_draw: bool,
+    pub winning_side: Option<Color>,
+}
+
+/// Avaliador de finais teóricos com sistema de lookup interno
 pub struct TheoreticalEvaluator {
-    // Pode incluir tablebases futuras
+    // Cache interno para posições já calculadas
 }
 
 impl TheoreticalEvaluator {
     pub fn new() -> Self {
+        // Inicializa a lookup table na primeira chamada
+        Self::init_endgame_knowledge();
         Self {}
+    }
+    
+    /// Inicializa a lookup table com finais teóricos conhecidos
+    fn init_endgame_knowledge() {
+        ENDGAME_KNOWLEDGE.get_or_init(|| {
+            vec![
+                (super::EndgameType::KQvsK, TheoreticalEvaluator::evaluate_kq_vs_k),
+                (super::EndgameType::KRvsK, TheoreticalEvaluator::evaluate_kr_vs_k),  
+                (super::EndgameType::KPvsK, TheoreticalEvaluator::evaluate_kp_vs_k),
+                (super::EndgameType::KBBvsK, TheoreticalEvaluator::evaluate_kbb_vs_k),
+                (super::EndgameType::KBNvsK, TheoreticalEvaluator::evaluate_kbn_vs_k),
+                // Adicionar mais finais conforme necessário
+            ]
+        });
+    }
+    
+    /// Sistema de lookup rápido para finais conhecidos
+    pub fn quick_lookup(&self, board: &Board) -> Option<EndgameLookupResult> {
+        let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+        
+        // Só usa lookup para finais com poucas peças
+        if total_pieces > 7 {
+            return None;
+        }
+        
+        // Verifica posições de empate teórico conhecidas
+        if let Some(draw_result) = self.check_theoretical_draws(board) {
+            return Some(draw_result);
+        }
+        
+        // Verifica mates forçados em posições específicas
+        if let Some(mate_result) = self.check_forced_mates(board) {
+            return Some(mate_result);
+        }
+        
+        None
+    }
+    
+    /// Verifica empates teóricos conhecidos (KvK, KBvK, KNvK, etc.)
+    fn check_theoretical_draws(&self, board: &Board) -> Option<EndgameLookupResult> {
+        let white_material = board.white_pieces & !board.kings;
+        let black_material = board.black_pieces & !board.kings;
+        let white_count = white_material.count_ones();
+        let black_count = black_material.count_ones();
+        
+        // K vs K
+        if white_count == 0 && black_count == 0 {
+            return Some(EndgameLookupResult {
+                result: 0,
+                mate_in: None,
+                is_theoretical_draw: true,
+                winning_side: None,
+            });
+        }
+        
+        // KN vs K ou KB vs K (sem peões)
+        if (white_count == 1 && black_count == 0) || (white_count == 0 && black_count == 1) {
+            let stronger_material = if white_count > 0 { white_material } else { black_material };
+            let is_knight = (stronger_material & board.knights) != 0;
+            let is_bishop = (stronger_material & board.bishops) != 0;
+            let no_pawns = board.pawns == 0;
+            
+            if no_pawns && (is_knight || is_bishop) {
+                return Some(EndgameLookupResult {
+                    result: 0,
+                    mate_in: None,
+                    is_theoretical_draw: true,
+                    winning_side: None,
+                });
+            }
+        }
+        
+        // KN vs KN (geralmente empate)
+        if white_count == 1 && black_count == 1 && board.pawns == 0 {
+            let white_knights = (white_material & board.knights).count_ones();
+            let black_knights = (black_material & board.knights).count_ones();
+            
+            if white_knights == 1 && black_knights == 1 {
+                return Some(EndgameLookupResult {
+                    result: 0,
+                    mate_in: None,
+                    is_theoretical_draw: true,
+                    winning_side: None,
+                });
+            }
+        }
+        
+        None
+    }
+    
+    /// Verifica mates forçados em posições específicas conhecidas
+    fn check_forced_mates(&self, board: &Board) -> Option<EndgameLookupResult> {
+        // KQ vs K - sempre ganha se rei fraco está na borda
+        if let Some(result) = self.check_kq_vs_k_forced_mate(board) {
+            return Some(result);
+        }
+        
+        // KR vs K - sempre ganha se rei fraco está na borda
+        if let Some(result) = self.check_kr_vs_k_forced_mate(board) {
+            return Some(result);
+        }
+        
+        None
+    }
+    
+    /// Verifica mate forçado específico para KQ vs K
+    fn check_kq_vs_k_forced_mate(&self, board: &Board) -> Option<EndgameLookupResult> {
+        let (strong_side, strong_pieces, weak_pieces) = self.get_material_sides(board)?;
+        
+        let strong_material = strong_pieces & !board.kings;
+        let weak_material = weak_pieces & !board.kings;
+        let strong_queens = (board.queens & strong_pieces).count_ones();
+        
+        if strong_material.count_ones() != 1 || weak_material.count_ones() != 0 || strong_queens != 1 {
+            return None;
+        }
+        
+        let weak_king = board.kings & weak_pieces;
+        if weak_king == 0 { return None; }
+        
+        let weak_king_sq = weak_king.trailing_zeros() as u8;
+        let distance_to_edge = self.calculate_distance_to_edge(weak_king_sq);
+        
+        // Se rei está na borda, mate é muito próximo
+        if distance_to_edge == 0 {
+            let mate_distance = if self.is_corner_square(weak_king_sq) { 1 } else { 3 };
+            return Some(EndgameLookupResult {
+                result: if strong_side == Color::White { 95000 } else { -95000 },
+                mate_in: Some(mate_distance),
+                is_theoretical_draw: false,
+                winning_side: Some(strong_side),
+            });
+        }
+        
+        None
+    }
+    
+    /// Verifica mate forçado específico para KR vs K  
+    fn check_kr_vs_k_forced_mate(&self, board: &Board) -> Option<EndgameLookupResult> {
+        let (strong_side, strong_pieces, weak_pieces) = self.get_material_sides(board)?;
+        
+        let strong_material = strong_pieces & !board.kings;
+        let weak_material = weak_pieces & !board.kings;
+        let strong_rooks = (board.rooks & strong_pieces).count_ones();
+        
+        if strong_material.count_ones() != 1 || weak_material.count_ones() != 0 || strong_rooks != 1 {
+            return None;
+        }
+        
+        let weak_king = board.kings & weak_pieces;
+        if weak_king == 0 { return None; }
+        
+        let weak_king_sq = weak_king.trailing_zeros() as u8;
+        let distance_to_edge = self.calculate_distance_to_edge(weak_king_sq);
+        
+        // Se rei está na borda e torre está bem posicionada, mate é próximo
+        if distance_to_edge == 0 {
+            return Some(EndgameLookupResult {
+                result: if strong_side == Color::White { 90000 } else { -90000 },
+                mate_in: Some(5), // KR vs K pode demorar mais
+                is_theoretical_draw: false,
+                winning_side: Some(strong_side),
+            });
+        }
+        
+        None
     }
     
     /// Avalia final teórico se aplicável

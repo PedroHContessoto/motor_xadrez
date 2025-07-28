@@ -32,7 +32,6 @@ mod find_best;
 mod aspiration;
 mod pvs;
 mod quiescence;
-mod mate_detection;
 mod parallel;
 
 use crate::{board::Board, types::{Color, PieceKind}};

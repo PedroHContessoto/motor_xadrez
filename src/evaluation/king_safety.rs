@@ -60,7 +60,9 @@ pub fn evaluate_king_safety(board: &Board, color: Color, game_phase: &GamePhase)
         GamePhase::LateMiddlegame => 4,
         GamePhase::EarlyEndgame => 5,
         GamePhase::Endgame => 6,
-        GamePhase::PureEndgame => 7,
+        GamePhase::LateEndgame => 7,
+        GamePhase::PureEndgame => 8,
+        GamePhase::TheoreticalEndgame => 9,
     };
     
     let cache_key = (board.zobrist_hash, color, game_phase_id);
