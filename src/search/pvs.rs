@@ -41,6 +41,11 @@ fn pvs_search_internal(
     is_pv_node: bool,
     ply: usize
 ) -> i32 {
+    // Proteção absoluta contra explosão de nós (reduzido de 50 para 40)
+    if ply > 40 {
+        return crate::evaluation::evaluate(board);
+    }
+    
     context.nodes_searched += 1;
 
     if context.nodes_searched & 2047 == 0 {
@@ -54,7 +59,7 @@ fn pvs_search_internal(
     }
 
     if depth > 64 {
-        return evaluation::evaluate_with_depth(board, depth + ply as u8);
+        return evaluation::evaluate_with_depth(board, depth.saturating_add(ply as u8));
     }
 
     let original_alpha = alpha;
@@ -95,7 +100,7 @@ fn pvs_search_internal(
     }
 
     let in_check = board.is_king_in_check(board.to_move);
-    let static_eval = if !in_check { evaluation::evaluate_with_depth(board, depth + ply as u8) } else { -MATE_VALUE / 2 };
+    let static_eval = if !in_check { evaluation::evaluate_with_depth(board, depth.saturating_add(ply as u8)) } else { -MATE_VALUE / 2 };
 
     // Reverse Futility Pruning (Static Null Move Pruning)
     if !is_pv_node && !in_check && depth <= 7 && static_eval != -MATE_VALUE / 2 {
@@ -198,7 +203,8 @@ fn pvs_search_internal(
 
     // === SINGULAR EXTENSIONS ===
     let mut singular_extension = 0;
-    if depth >= SINGULAR_EXTENSION_DEPTH && tt_move.is_some() && !is_pv_node {
+    // Extensões singulares mais restritivas
+    if depth >= SINGULAR_EXTENSION_DEPTH && tt_move.is_some() && !is_pv_node && ply <= 15 && depth <= 8 {
         if let Some(singular_ext) = evaluate_singular_extension(
             board, tt_move.unwrap(), depth, alpha, beta, tt, context, start_time, max_time_ms, ply
         ) {
@@ -214,6 +220,7 @@ fn pvs_search_internal(
     let mut tried_moves = Vec::with_capacity(ordered_moves.len());
 
     // === MULTI-CUT PRUNING APRIMORADO ===
+    // Reativando multicut pruning 
     // Detecta posições onde múltiplos movimentos causam beta cutoff
     if should_try_multicut_enhanced(depth, is_pv_node, in_check, &ordered_moves, static_eval, beta) {
         let multicut_result = evaluate_multicut_pruning_enhanced(
@@ -267,29 +274,60 @@ fn pvs_search_internal(
             }
         }
 
-        // Extensions
-        let mut extension = 0;
-        if gives_check { 
-            extension += 1;
-            // Extensão extra em sequências de xeque ou posições de mate
-            if in_check || context.nodes_searched < 100000 { // Menos nodes = mais cuidado
-                extension += 1;
+        // === SISTEMA DE EXTENSÕES COM ORÇAMENTO CONTROLADO ===
+        
+        // Define orçamento máximo baseado na profundidade atual
+        let extension_budget = if ply > 25 {
+            0 // Sem extensões em PLY muito alto
+        } else if ply > 20 {
+            1 // Orçamento mínimo
+        } else if ply > 15 {
+            2 // Orçamento baixo
+        } else if ply > 10 {
+            3 // Orçamento médio
+        } else {
+            4 // Orçamento alto apenas em PLY baixo
+        };
+        
+        // Calcula extensões por prioridade (não acumula, escolhe a melhor)
+        let mut extension_candidates = Vec::new();
+        
+        // 1. PRIORIDADE MÁXIMA: Checks em posições críticas de mate
+        if gives_check && in_check && depth <= 1 && ply <= 10 {
+            extension_candidates.push(("mate_threat", 2));
+        }
+        
+        // 2. PRIORIDADE ALTA: TT move singular
+        if Some(*mv) == tt_move && singular_extension > 0 {
+            extension_candidates.push(("singular", singular_extension as i32));
+        }
+        
+        // 3. PRIORIDADE ALTA: Checks básicos
+        if gives_check {
+            extension_candidates.push(("check", 1));
+        }
+        
+        // 4. PRIORIDADE MÉDIA: Promoções
+        if mv.promotion.is_some() {
+            extension_candidates.push(("promotion", 1));
+        }
+        
+        // 5. PRIORIDADE BAIXA: Recapturas
+        if is_recapture(board, *mv, context) {
+            extension_candidates.push(("recapture", 1));
+        }
+        
+        // Escolhe a extensão de maior prioridade que cabe no orçamento
+        let mut extension = 0i32;
+        for (_name, ext_value) in extension_candidates {
+            if ext_value <= extension_budget {
+                extension = extension.max(ext_value);
             }
         }
-        if mv.promotion.is_some() { extension += 1; }
-        if is_recapture(board, *mv, context) { extension += 1; }
         
-        // Extensão especial para posições críticas de mate
-        if in_check && depth <= 3 {
-            extension += 2; // Busca muito mais profunda em xeques próximos ao fim
-        }
-        
-        // Aplica singular extension se movimento da TT
-        if Some(*mv) == tt_move && singular_extension > 0 {
-            extension += singular_extension;
-        }
-        
-        extension = extension.min(6); // Aumentado para permitir extensões de mate mais profundas
+        // Aplica o orçamento final e converte para u8
+        extension = extension.min(extension_budget);
+        let extension = extension.max(0) as u8;
 
         let mut score;
 
@@ -903,7 +941,7 @@ fn is_endgame_position(board: &Board) -> bool {
 
 /// Constantes para Singular Extensions
 const SINGULAR_MARGIN: i32 = 64;           // Margem para considerar movimento singular
-const SINGULAR_SEARCH_DEPTH_REDUCTION: u8 = 3; // Redução na busca de verificação
+const SINGULAR_SEARCH_DEPTH_REDUCTION: u8 = 4; // Aumentado de 3 para 4 - menos agressivo
 const SINGULAR_MAX_EXTENSION: u8 = 1;      // Extensão máxima
 const MULTICUT_DEPTH: u8 = 8;              // Profundidade mínima para multi-cut
 

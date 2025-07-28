@@ -60,8 +60,13 @@ pub fn order_moves(
     
     // === 3. ORDENAÇÃO OTIMIZADA ===
     
-    // Ordenação estável por score (maior primeiro)
-    scored_moves.sort_by(|a, b| b.1.cmp(&a.1));
+    // Ordenação estável por score (maior primeiro) com proteção contra overflow
+    scored_moves.sort_by(|a, b| {
+        // Protege contra valores inválidos que podem causar crash
+        let score_a = a.1.max(i32::MIN + 1).min(i32::MAX - 1);
+        let score_b = b.1.max(i32::MIN + 1).min(i32::MAX - 1);
+        score_b.cmp(&score_a)
+    });
     
     // Retorna apenas os movimentos ordenados
     scored_moves.into_iter().map(|(mv, _)| mv).collect()
@@ -115,16 +120,17 @@ fn calculate_move_score(
     
     // === 5. HISTÓRICO E HEURÍSTICAS AVANÇADAS ===
     
-    let mut quiet_score = 0;
+    let mut quiet_score: i32 = 0;
     
     // Histórico de movimentos
     if let Some(piece) = board.get_piece_on_square(mv.from) {
         let history = context.get_history_score(mv, piece);
-        quiet_score += (history * SCORE_HISTORY_BASE) / 10000; // Normaliza
+        let history_contribution = history.saturating_mul(SCORE_HISTORY_BASE).checked_div(10000).unwrap_or(0);
+        quiet_score = quiet_score.saturating_add(history_contribution);
     }
     
     // Heurísticas posicionais
-    quiet_score += score_positional_heuristics(mv, board, depth);
+    quiet_score = quiet_score.saturating_add(score_positional_heuristics(mv, board, depth));
     
     quiet_score
 }
@@ -136,24 +142,24 @@ fn score_capture_advanced(mv: Move, board: &Board) -> i32 {
     let attacker_value = get_attacking_piece_value(board, mv);
     
     if see_value > 0 {
-        // Captura boa - usa MVV-LVA otimizado
-        SCORE_GOOD_CAPTURE_BASE + captured_value * 10 - attacker_value
+        // Captura boa - usa MVV-LVA otimizado com proteção contra overflow
+        SCORE_GOOD_CAPTURE_BASE.saturating_add(captured_value.saturating_mul(10)).saturating_sub(attacker_value)
     } else if see_value == 0 {
         // Captura igual - ainda prioritária
-        SCORE_EQUAL_CAPTURE + captured_value
+        SCORE_EQUAL_CAPTURE.saturating_add(captured_value)
     } else {
         // Captura ruim mas ainda considerável
-        SCORE_BAD_CAPTURE_BASE + see_value
+        SCORE_BAD_CAPTURE_BASE.saturating_add(see_value)
     }
 }
 
 /// Score para promoções
 fn score_promotion(promotion: PieceKind) -> i32 {
     match promotion {
-        PieceKind::Queen => SCORE_PROMOTION_BASE + 900,
-        PieceKind::Rook => SCORE_PROMOTION_BASE + 500,
-        PieceKind::Bishop => SCORE_PROMOTION_BASE + 330,
-        PieceKind::Knight => SCORE_PROMOTION_BASE + 320,
+        PieceKind::Queen => SCORE_PROMOTION_BASE.saturating_add(900),
+        PieceKind::Rook => SCORE_PROMOTION_BASE.saturating_add(500),
+        PieceKind::Bishop => SCORE_PROMOTION_BASE.saturating_add(330),
+        PieceKind::Knight => SCORE_PROMOTION_BASE.saturating_add(320),
         _ => SCORE_PROMOTION_BASE,
     }
 }
@@ -180,7 +186,7 @@ fn score_positional_heuristics(mv: Move, board: &Board, depth: u8) -> i32 {
     // === MOVIMENTOS DEFENSIVOS APRIMORADOS ===
     if is_defensive_move(board, mv) {
         let defensive_urgency = evaluate_defensive_urgency(board, mv);
-        score += 8000 + defensive_urgency;
+        score = score.saturating_add(8000).saturating_add(defensive_urgency);
     }
     
     // === CHECKS E AMEAÇAS ===
@@ -662,13 +668,13 @@ fn weakens_king_safety(board: &Board, mv: Move) -> bool {
             return true;
         }
         
-        // Remove defensor de peão na frente do rei
-        if board.to_move == Color::White && mv.from / 8 == king_rank + 1 {
+        // Remove defensor de peão na frente do rei (com proteção contra underflow)
+        if board.to_move == Color::White && king_rank < 7 && mv.from / 8 == king_rank + 1 {
             let file_diff = (mv.from % 8) as i8 - king_file as i8;
             if file_diff.abs() <= 1 {
                 return true;
             }
-        } else if board.to_move == Color::Black && mv.from / 8 == king_rank - 1 {
+        } else if board.to_move == Color::Black && king_rank > 0 && mv.from / 8 == king_rank.saturating_sub(1) {
             let file_diff = (mv.from % 8) as i8 - king_file as i8;
             if file_diff.abs() <= 1 {
                 return true;

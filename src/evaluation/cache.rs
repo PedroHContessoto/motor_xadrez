@@ -143,20 +143,20 @@ impl EvaluationCache {
 /// Cache hierárquico por componente para avaliação incremental
 lazy_static::lazy_static! {
     static ref EVAL_CACHE: std::sync::Mutex<EvaluationCache> = 
-        std::sync::Mutex::new(EvaluationCache::new(500000)); // 500k entradas para melhor hit rate
+        std::sync::Mutex::new(EvaluationCache::new(10000)); // Reduzido de 500k para 10k
     
     // Caches especializados por componente (incrementais)
     static ref MATERIAL_CACHE: std::sync::Mutex<std::collections::HashMap<u64, i32>> = 
-        std::sync::Mutex::new(std::collections::HashMap::with_capacity(100000));
+        std::sync::Mutex::new(std::collections::HashMap::with_capacity(1000)); // Reduzido de 100k para 1k
     
     static ref PAWN_CACHE: std::sync::Mutex<std::collections::HashMap<u64, i32>> = 
-        std::sync::Mutex::new(std::collections::HashMap::with_capacity(50000));
+        std::sync::Mutex::new(std::collections::HashMap::with_capacity(1000)); // Reduzido de 50k para 1k
     
     static ref KING_SAFETY_CACHE: std::sync::Mutex<std::collections::HashMap<u64, i32>> = 
-        std::sync::Mutex::new(std::collections::HashMap::with_capacity(30000));
+        std::sync::Mutex::new(std::collections::HashMap::with_capacity(1000)); // Reduzido de 30k para 1k
     
     static ref MOBILITY_CACHE: std::sync::Mutex<std::collections::HashMap<u64, i32>> = 
-        std::sync::Mutex::new(std::collections::HashMap::with_capacity(20000));
+        std::sync::Mutex::new(std::collections::HashMap::with_capacity(1000)); // Reduzido de 20k para 1k
 }
 
 /// Converte profundidade de busca para tipo de avaliação

@@ -329,7 +329,7 @@ fn evaluate_tempo_fast(board: &Board) -> i32 {
     
     lazy_static::lazy_static! {
         static ref TEMPO_CACHE: Mutex<HashMap<u64, i32>> = 
-            Mutex::new(HashMap::with_capacity(1000));
+            Mutex::new(HashMap::with_capacity(100)); // Reduzido de 1000 para 100
     }
     
     // Verifica cache primeiro
@@ -347,7 +347,7 @@ fn evaluate_tempo_fast(board: &Board) -> i32 {
     
     // Armazena no cache
     if let Ok(mut cache) = TEMPO_CACHE.try_lock() {
-        if (*cache).len() >= 1000 {
+        if (*cache).len() >= 100 {
             (*cache).clear(); // LRU simples: limpa quando cheio
         }
         (*cache).insert(board.zobrist_hash, tempo);
