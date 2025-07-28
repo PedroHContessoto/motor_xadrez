@@ -7,13 +7,41 @@ pub mod threats;
 pub mod mobility;
 pub mod pawn_structure;
 pub mod game_phase;
+pub mod cache;
 mod utils;
 mod endgame_patterns;
 
 use crate::{board::Board, types::Color};
+use cache::EvaluationCache;
+use std::sync::Mutex;
 
-/// Função principal de avaliação (interface pública)
+// Cache global de avaliação (thread-safe)
+lazy_static::lazy_static! {
+    static ref EVAL_CACHE: Mutex<EvaluationCache> = Mutex::new(EvaluationCache::new(16384)); // 16K entradas
+}
+
+/// Função principal de avaliação com cache (interface pública)
 pub fn evaluate(board: &Board) -> i32 {
+    // Tenta buscar no cache primeiro
+    if let Ok(mut cache) = EVAL_CACHE.lock() {
+        if let Some(cached_score) = cache.probe(board.zobrist_hash) {
+            return cached_score;
+        }
+    }
+
+    // Se não encontrou no cache, calcula normalmente
+    let score = evaluate_uncached(board);
+
+    // Armazena no cache
+    if let Ok(mut cache) = EVAL_CACHE.lock() {
+        cache.store(board.zobrist_hash, score, 0);
+    }
+
+    score
+}
+
+/// Função de avaliação sem cache (interna)
+fn evaluate_uncached(board: &Board) -> i32 {
     let game_phase = game_phase::detect_game_phase(board);
     let phase_info = game_phase::detect_game_phase_advanced(board);
 
@@ -33,6 +61,22 @@ pub fn evaluate(board: &Board) -> i32 {
         final_score
     } else {
         -final_score
+    }
+}
+
+/// Função para limpar o cache de avaliação
+pub fn clear_eval_cache() {
+    if let Ok(mut cache) = EVAL_CACHE.lock() {
+        cache.clear();
+    }
+}
+
+/// Função para obter estatísticas do cache
+pub fn get_eval_cache_stats() -> (u64, u64, f64, usize) {
+    if let Ok(cache) = EVAL_CACHE.lock() {
+        cache.get_stats()
+    } else {
+        (0, 0, 0.0, 0)
     }
 }
 

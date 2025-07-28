@@ -206,6 +206,13 @@ impl Board {
 
 
     /// Executa um lance, atualizando o estado do tabuleiro.
+    /// Cria uma nova cópia do board com o movimento aplicado (copy-make para performance)
+    pub fn make_move_copy(&self, mv: Move) -> Self {
+        let mut new_board = *self;
+        new_board.make_move(mv);
+        new_board
+    }
+
     pub fn make_move(&mut self, mv: Move) {
         let from_bb = 1u64 << mv.from;
         let to_bb = 1u64 << mv.to;

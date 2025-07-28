@@ -187,8 +187,8 @@ fn pvs_search_internal(
         for (i, mv) in ordered_moves.iter().take(MC_MOVES_TO_TRY).enumerate() {
             if i >= moves_searched { break; }
 
-            let mut temp_board = *board;
-            temp_board.make_move(*mv);
+            // Usa copy-make para performance
+            let temp_board = board.make_move_copy(*mv);
 
             let score = -pvs_search_internal(
                 &temp_board, depth - 3, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false, ply + 1
@@ -204,8 +204,8 @@ fn pvs_search_internal(
     }
 
     for mv in &ordered_moves {
-        let mut temp_board = *board;
-        temp_board.make_move(*mv);
+        // Usa copy-make para performance
+        let temp_board = board.make_move_copy(*mv);
 
         context.push_move(*mv);
 

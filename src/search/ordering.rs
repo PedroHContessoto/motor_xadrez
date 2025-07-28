@@ -43,6 +43,17 @@ pub fn order_moves(
                 score = 400_000 + see_value + captured_piece_value;
             }
         }
+        // 3. Killer moves (movimentos silenciosos que causaram cutoff)
+        else if context.is_killer(mv, depth) {
+            let killer_age = context.get_killer_age(mv, depth);
+            score = 900_000 - (killer_age * 50_000); // Killer mais recente tem prioridade
+        }
+        // 4. Counter moves (resposta eficaz ao movimento anterior)
+        else if let Some(last_move) = context.get_last_move() {
+            if Some(mv) == context.get_counter_move(last_move) {
+                score = 850_000;
+            }
+        }
         // 3. Castling (desenvolvimento seguro)
         else if mv.is_castling {
             score = 15_000;
@@ -61,16 +72,7 @@ pub fn order_moves(
         else if is_defensive_move(board, mv) {
             score = 20_000;
         }
-        // 6. Killers (moves que causaram cutoffs) - ordenação por idade
-        else if context.is_killer(mv, depth) {
-            let killer_age = context.get_killer_age(mv, depth);
-            score = 1_400_000 - (killer_age * 10_000); // Killers mais recentes primeiro
-        }
-        // 7. Counter-moves (refutam último movimento inimigo)
-        else if is_counter_move(mv, context) {
-            score = 1_200_000;
-        }
-        // 8. Checks (podem causar táticas) - prioridade por tipo
+        // 5. Movimentos que dão xeque
         else if gives_check_heuristic(board, mv) {
             if is_discovered_check(board, mv) {
                 score = 1_100_000; // Checks descobertos são perigosos
@@ -78,7 +80,7 @@ pub fn order_moves(
                 score = 1_000_000;
             }
         }
-        // 9. Avaliação inteligente de movimentos de rei
+        // 6. Avaliação inteligente de movimentos de rei
         else if board.get_piece_on_square(mv.from) == Some(PieceKind::King) {
             let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
             let queens_on_board = board.queens.count_ones();

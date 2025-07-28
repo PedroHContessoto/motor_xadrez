@@ -103,9 +103,8 @@ fn quiescence_search_with_ply(
             continue;
         }
 
-        // Faz movimento e busca recursivamente
-        let mut temp_board = *board;
-        temp_board.make_move(mv);
+        // Faz movimento e busca recursivamente (usa copy-make)
+        let temp_board = board.make_move_copy(mv);
 
         let score = -quiescence_search_with_ply(&temp_board, -beta, -alpha, ply + 1, max_ply, tt, context);
 

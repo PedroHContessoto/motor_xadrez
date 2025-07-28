@@ -2,6 +2,7 @@
 // Descrição: Lógica para gerar os lances de peças deslizantes (Torres e Bispos).
 
 use crate::{board::Board, types::{Move, Color, PieceKind, Bitboard}};
+use super::magic_bitboards::{get_rook_attacks_magic, get_bishop_attacks_magic};
 
 // Placeholder for future magic bitboard optimization
 // static BISHOP_MASKS: [Bitboard; 64] = generate_bishop_masks();
@@ -112,62 +113,14 @@ const fn generate_rook_masks() -> [Bitboard; 64] {
     masks
 }
 
-/// Calcula ataques de bispo usando máscara e ocupação
+/// Calcula ataques de bispo usando magic bitboards (ultra rápido)
 pub fn get_bishop_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
-    let mut attacks = 0u64;
-    let directions = [7i8, 9, -7, -9]; // diagonais
-    
-    for &direction in &directions {
-        let mut current = square as i8;
-        loop {
-            let prev = current;
-            current += direction;
-            
-            if current < 0 || current >= 64 { break; }
-            
-            // Verifica wrap-around
-            let prev_file = prev % 8;
-            let curr_file = current % 8;
-            if (curr_file - prev_file).abs() > 1 { break; }
-            
-            let target_bb = 1u64 << current;
-            attacks |= target_bb;
-            
-            // Para se encontrar uma peça ocupando a casa
-            if (occupancy & target_bb) != 0 { break; }
-        }
-    }
-    
-    attacks
+    get_bishop_attacks_magic(square, occupancy)
 }
 
-/// Calcula ataques de torre usando máscara e ocupação
+/// Calcula ataques de torre usando magic bitboards (ultra rápido)
 pub fn get_rook_attacks(square: u8, occupancy: Bitboard) -> Bitboard {
-    let mut attacks = 0u64;
-    let directions = [1i8, -1, 8, -8]; // retas
-    
-    for &direction in &directions {
-        let mut current = square as i8;
-        loop {
-            let prev = current;
-            current += direction;
-            
-            if current < 0 || current >= 64 { break; }
-            
-            // Verifica wrap-around
-            let prev_file = prev % 8;
-            let curr_file = current % 8;
-            if (curr_file - prev_file).abs() > 1 { break; }
-            
-            let target_bb = 1u64 << current;
-            attacks |= target_bb;
-            
-            // Para se encontrar uma peça ocupando a casa
-            if (occupancy & target_bb) != 0 { break; }
-        }
-    }
-    
-    attacks
+    get_rook_attacks_magic(square, occupancy)
 }
 
 /// Gera lances ao longo de um raio a partir de uma casa numa dada direção.
