@@ -57,7 +57,436 @@ impl OpeningBook {
         // Cria um tabuleiro temporário para calcular posições
         let mut board = Board::new();
 
-        // === ABERTURAS DE PEÃO DO REI (1.e4) ===
+        // === ABERTURAS DE PEÃO DA DAMA (1.d4) ===
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+        ]);
+
+        // Defesa Índia do Rei
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("g7g6", 85, "Índia do Rei - Fianchetto"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("g7g6", 85, "Índia do Rei - Fianchetto"),
+            ("b1c3", 82, "KID - Classical Setup"),
+            ("f8g7", 80, "KID - Main Line"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("g7g6", 85, "Índia do Rei - Fianchetto"),
+            ("b1c3", 82, "KID - Classical Setup"),
+            ("f8g7", 80, "KID - Main Line"),
+            ("e2e4", 75, "KID - Four Pawns Attack"),
+            ("e7e6", 72, "KID - Classical Response"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("g7g6", 85, "Índia do Rei - Fianchetto"),
+            ("g2g3", 78, "KID - Fianchetto Variation"),
+            ("f8g7", 75, "KID - Fianchetto Main"),
+            ("f1g2", 72, "KID - Fianchetto Setup"),
+        ]);
+
+        // Gambito da Dama
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+        ]);
+
+        // Gambito da Dama Recusado (QGD)
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+            ("b1c3", 82, "QGD - Orthodox Defense"),
+            ("g8f6", 80, "QGD - Main Line"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+            ("b1c3", 82, "QGD - Orthodox Defense"),
+            ("g8f6", 80, "QGD - Main Line"),
+            ("c1g5", 75, "QGD - Exchange Variation"),
+            ("f8e7", 72, "QGD - Classical Exchange"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+            ("b1c3", 82, "QGD - Orthodox Defense"),
+            ("g8f6", 80, "QGD - Main Line"),
+            ("c1g5", 75, "QGD - Exchange Variation"),
+            ("f8e7", 72, "QGD - Classical Exchange"),
+            ("e2e3", 70, "QGD - Orthodox Line"),
+            ("e8g8", 68, "QGD - Castled Position"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+            ("b1c3", 82, "QGD - Orthodox Defense"),
+            ("c7c5", 78, "QGD - Tarrasch Defense"),
+            ("c4d5", 75, "QGD - Tarrasch Exchange"),
+            ("e6d5", 72, "QGD - Tarrasch Main Line"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+            ("b1c3", 82, "QGD - Orthodox Defense"),
+            ("g8f6", 80, "QGD - Main Line"),
+            ("c1g5", 75, "QGD - Exchange Variation"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+            ("b1c3", 82, "QGD - Orthodox Defense"),
+            ("c7c6", 78, "QGD - Semi-Slav"),
+            ("g1f3", 75, "QGD - Semi-Slav Main"),
+            ("g8f6", 72, "QGD - Semi-Slav Classical"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e6", 85, "Gambito da Dama Recusado"),
+            ("b1c3", 82, "QGD - Orthodox Defense"),
+            ("c7c6", 78, "QGD - Semi-Slav"),
+            ("g1f3", 75, "QGD - Semi-Slav Main"),
+            ("g8f6", 72, "QGD - Semi-Slav Classical"),
+            ("e2e3", 70, "QGD - Meran Variation"),
+            ("b8d7", 68, "QGD - Meran Setup"),
+        ]);
+
+        // Gambito da Dama Aceito (QGA)
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("d5c4", 75, "Gambito da Dama Aceito"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("d5c4", 75, "Gambito da Dama Aceito"),
+            ("g1f3", 72, "QGA - Main Line"),
+            ("g8f6", 70, "QGA - Classical"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("d5c4", 75, "Gambito da Dama Aceito"),
+            ("g1f3", 72, "QGA - Main Line"),
+            ("g8f6", 70, "QGA - Classical"),
+            ("e2e3", 68, "QGA - Central Variation"),
+            ("e7e6", 65, "QGA - Classical Defense"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("d5c4", 75, "Gambito da Dama Aceito"),
+            ("e2e4", 70, "QGA - Alekhine Variation"),
+            ("e7e5", 68, "QGA - Alekhine Defense"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("d5c4", 75, "Gambito da Dama Aceito"),
+            ("e2e3", 72, "QGA - Classical Setup"),
+            ("g8f6", 70, "QGA - Classical Line"),
+            ("f1c4", 68, "QGA - Bishop Attack"),
+        ]);
+
+        // Defesa Eslava
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("c7c6", 80, "Defesa Eslava"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("c7c6", 80, "Defesa Eslava"),
+            ("g1f3", 78, "Eslava - Main Line"),
+            ("g8f6", 75, "Eslava - Classical"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("c7c6", 80, "Defesa Eslava"),
+            ("g1f3", 78, "Eslava - Main Line"),
+            ("g8f6", 75, "Eslava - Classical"),
+            ("b1c3", 72, "Eslava - Orthodox"),
+            ("d5c4", 70, "Eslava - Exchange Variation"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("c7c6", 80, "Defesa Eslava"),
+            ("g1f3", 78, "Eslava - Main Line"),
+            ("g8f6", 75, "Eslava - Classical"),
+            ("b1c3", 72, "Eslava - Orthodox"),
+            ("e7e6", 70, "Eslava - Semi-Slav Transition"),
+        ]);
+
+        // Catalan
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e6", 85, "Sistema Clássico"),
+            ("g2g3", 80, "Sistema Catalão"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e6", 85, "Sistema Clássico"),
+            ("g2g3", 80, "Sistema Catalão"),
+            ("d7d5", 78, "Catalan - Open"),
+            ("f1g2", 75, "Catalan - Main Line"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e6", 85, "Sistema Clássico"),
+            ("g2g3", 80, "Sistema Catalão"),
+            ("d7d5", 78, "Catalan - Open"),
+            ("f1g2", 75, "Catalan - Main Line"),
+            ("d5c4", 72, "Catalan - Open Accepted"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e6", 85, "Sistema Clássico"),
+            ("g2g3", 80, "Sistema Catalão"),
+            ("d7d5", 78, "Catalan - Open"),
+            ("f1g2", 75, "Catalan - Main Line"),
+            ("c7c6", 72, "Catalan - Closed"),
+        ]);
+
+        // Albin Countergambit
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e5", 70, "Albin Countergambit"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e5", 70, "Albin Countergambit"),
+            ("d4e5", 68, "Albin - Accepted"),
+            ("d5d4", 65, "Albin - Main Line"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("e7e5", 70, "Albin Countergambit"),
+            ("d4e5", 68, "Albin - Accepted"),
+            ("d5d4", 65, "Albin - Main Line"),
+            ("e2e3", 63, "Albin - Classical"),
+        ]);
+
+        // Chigorin Defense
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("b8c6", 70, "Defesa Chigorin"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("b8c6", 70, "Defesa Chigorin"),
+            ("g1f3", 68, "Chigorin - Main Line"),
+            ("g8f6", 65, "Chigorin - Classical"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("d7d5", 93, "Defesa Simétrica"),
+            ("c2c4", 90, "Gambito da Dama"),
+            ("b8c6", 70, "Defesa Chigorin"),
+            ("g1f3", 68, "Chigorin - Main Line"),
+            ("g8f6", 65, "Chigorin - Classical"),
+            ("c4d5", 63, "Chigorin - Exchange"),
+        ]);
+
+        // Sistema Londres
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("g1f3", 85, "Cavaleiro do Rei"),
+            ("e7e6", 80, "Sistema Clássico"),
+            ("c1f4", 75, "Sistema Londres"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("g1f3", 85, "Cavaleiro do Rei"),
+            ("e7e6", 80, "Sistema Clássico"),
+            ("c1f4", 75, "Sistema Londres"),
+            ("d7d5", 72, "Londres - Queen's Gambit Setup"),
+            ("e2e3", 70, "Londres - Main Line"),
+        ]);
+
+        // Sistema Colle
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("g1f3", 85, "Cavaleiro do Rei"),
+            ("e7e6", 80, "Sistema Clássico"),
+            ("e2e3", 70, "Sistema Colle"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("g1f3", 85, "Cavaleiro do Rei"),
+            ("e7e6", 80, "Sistema Clássico"),
+            ("e2e3", 70, "Sistema Colle"),
+            ("d7d5", 68, "Colle - Queen's Gambit Setup"),
+            ("c2c3", 65, "Colle - Main Line"),
+        ]);
+
+        // Nimzo-Indian
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e6", 85, "Sistema Clássico"),
+            ("b1c3", 82, "Nimzo-Indian Setup"),
+            ("f8b4", 80, "Nimzo-Indian Defense"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e6", 85, "Sistema Clássico"),
+            ("b1c3", 82, "Nimzo-Indian Setup"),
+            ("f8b4", 80, "Nimzo-Indian Defense"),
+            ("e2e3", 78, "Nimzo-Indian - Rubinstein"),
+            ("e8g8", 75, "Nimzo-Indian - Classical"),
+        ]);
+
+        // Benoni Defense
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("c7c5", 75, "Benoni Defense"),
+            ("d4d5", 72, "Benoni - Advance"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("c7c5", 75, "Benoni Defense"),
+            ("d4d5", 72, "Benoni - Advance"),
+            ("e7e6", 70, "Benoni - Modern"),
+        ]);
+
+        // Budapest Gambit
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e5", 65, "Gambito de Budapeste"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("d2d4", 95, "Abertura do Peão da Dama"),
+            ("g8f6", 90, "Defesa Índia do Rei"),
+            ("c2c4", 88, "Sistema Inglês"),
+            ("e7e5", 65, "Gambito de Budapeste"),
+            ("d4e5", 63, "Budapest - Accepted"),
+            ("f6g4", 60, "Budapest - Main Line"),
+        ]);
+
+        // === OUTRAS ABERTURAS (mantidas do original) ===
+
+        // Abertura do Peão do Rei
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),
         ]);
@@ -88,6 +517,37 @@ impl OpeningBook {
             ("b8c6", 85, "Siciliana - Variação Acelerada"),
         ]);
 
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("c7c5", 95, "Defesa Siciliana"),
+            ("g1f3", 90, "Siciliana - Ataque Aberto"),
+            ("d7d6", 85, "Siciliana - Dragão Acelerado"),
+            ("d2d4", 82, "Siciliana - Variação Principal"),
+            ("c5d4", 80, "Siciliana - Captura Central"),
+            ("f3d4", 78, "Siciliana - Cavalo Central"),
+            ("g8f6", 75, "Siciliana - Najdorf Setup"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("c7c5", 95, "Defesa Siciliana"),
+            ("g1f3", 90, "Siciliana - Ataque Aberto"),
+            ("b8c6", 85, "Siciliana - Variação Acelerada"),
+            ("d2d4", 82, "Siciliana - Variação Principal"),
+            ("c5d4", 80, "Siciliana - Captura Central"),
+            ("f3d4", 78, "Siciliana - Cavalo Central"),
+            ("g7g6", 75, "Siciliana - Dragon Variation"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("c7c5", 95, "Defesa Siciliana"),
+            ("g1f3", 90, "Siciliana - Ataque Aberto"),
+            ("e7e6", 85, "Siciliana - Paulsen Variation"),
+            ("d2d4", 82, "Siciliana - Variação Principal"),
+            ("c5d4", 80, "Siciliana - Captura Central"),
+        ]);
+
         // Defesa Francesa
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),
@@ -107,6 +567,24 @@ impl OpeningBook {
             ("d7d5", 85, "Francesa - Variação Principal"),
         ]);
 
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("e7e6", 90, "Defesa Francesa"),
+            ("d2d4", 88, "Francesa - Ataque Principal"),
+            ("d7d5", 85, "Francesa - Variação Principal"),
+            ("b1c3", 82, "Francesa - Winawer Variation"),
+            ("f8b4", 78, "Francesa - Winawer Main Line"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("e7e6", 90, "Defesa Francesa"),
+            ("d2d4", 88, "Francesa - Ataque Principal"),
+            ("d7d5", 85, "Francesa - Variação Principal"),
+            ("e4e5", 80, "Francesa - Advance Variation"),
+            ("c7c5", 75, "Francesa - Advance Main Line"),
+        ]);
+
         // Defesa Caro-Kann
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),
@@ -117,6 +595,24 @@ impl OpeningBook {
             ("e2e4", 100, "Abertura do Peão do Rei"),
             ("c7c6", 85, "Defesa Caro-Kann"),
             ("d2d4", 83, "Caro-Kann - Variação Principal"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("c7c6", 85, "Defesa Caro-Kann"),
+            ("d2d4", 83, "Caro-Kann - Variação Principal"),
+            ("d7d5", 80, "Caro-Kann - Main Line"),
+            ("b1c3", 78, "Caro-Kann - Classical"),
+            ("d5e4", 75, "Caro-Kann - Exchange"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("c7c6", 85, "Defesa Caro-Kann"),
+            ("d2d4", 83, "Caro-Kann - Variação Principal"),
+            ("d7d5", 80, "Caro-Kann - Main Line"),
+            ("e4d5", 75, "Caro-Kann - Exchange Variation"),
+            ("c6d5", 72, "Caro-Kann - Exchange Main"),
         ]);
 
         // Ruy Lopez
@@ -155,158 +651,6 @@ impl OpeningBook {
             ("a7a6", 85, "Ruy Lopez - Defesa Morphy"),
         ]);
 
-        // Gambito do Rei
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("e7e5", 95, "Defesa do Peão do Rei"),
-            ("f2f4", 75, "Gambito do Rei"),
-        ]);
-
-        // Italiana
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("e7e5", 95, "Defesa do Peão do Rei"),
-            ("g1f3", 93, "Cavaleiro do Rei"),
-            ("b8c6", 90, "Defesa do Cavaleiro"),
-            ("f1c4", 85, "Abertura Italiana"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("e7e5", 95, "Defesa do Peão do Rei"),
-            ("g1f3", 93, "Cavaleiro do Rei"),
-            ("b8c6", 90, "Defesa do Cavaleiro"),
-            ("f1c4", 85, "Abertura Italiana"),
-            ("f8c5", 80, "Italiana - Variação Simétrica"),
-        ]);
-
-        // === ABERTURAS DE PEÃO DA DAMA (1.d4) ===
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-        ]);
-
-        // Defesa Índia do Rei
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-            ("g7g6", 85, "Índia do Rei - Fianchetto"),
-        ]);
-
-        // Gambito da Dama
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-            ("c2c4", 90, "Gambito da Dama"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-            ("c2c4", 90, "Gambito da Dama"),
-            ("e7e6", 85, "Gambito da Dama Recusado"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-            ("c2c4", 90, "Gambito da Dama"),
-            ("d5c4", 75, "Gambito da Dama Aceito"),
-        ]);
-
-        // Defesa Eslava
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-            ("c2c4", 90, "Gambito da Dama"),
-            ("c7c6", 80, "Defesa Eslava"),
-        ]);
-
-        // Catalan
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-            ("e7e6", 85, "Sistema Clássico"),
-            ("g2g3", 80, "Sistema Catalão"),
-        ]);
-
-        // === ABERTURAS DE FLANCO ===
-
-        // Abertura Inglesa
-        self.add_opening_line(&mut board, vec![
-            ("c2c4", 85, "Abertura Inglesa"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("c2c4", 85, "Abertura Inglesa"),
-            ("e7e5", 80, "Inglesa - Variação Reversa"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("c2c4", 85, "Abertura Inglesa"),
-            ("g8f6", 78, "Inglesa - Sistema Índio"),
-        ]);
-
-        // Reti
-        self.add_opening_line(&mut board, vec![
-            ("g1f3", 80, "Abertura Reti"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("g1f3", 80, "Abertura Reti"),
-            ("d7d5", 75, "Reti - Sistema Clássico"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("g1f3", 80, "Abertura Reti"),
-            ("g8f6", 75, "Reti - Variação Índia"),
-        ]);
-
-        // Abertura dos Pássaros
-        self.add_opening_line(&mut board, vec![
-            ("f2f4", 60, "Abertura dos Pássaros"),
-        ]);
-
-        // === SISTEMAS ESPECIAIS ===
-
-        // Sistema Londres
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("g1f3", 85, "Cavaleiro do Rei"),
-            ("e7e6", 80, "Sistema Clássico"),
-            ("c1f4", 75, "Sistema Londres"),
-        ]);
-
-        // Sistema Colle
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("g1f3", 85, "Cavaleiro do Rei"),
-            ("e7e6", 80, "Sistema Clássico"),
-            ("e2e3", 70, "Sistema Colle"),
-        ]);
-
-        // === MAIS VARIAÇÕES DAS ABERTURAS PRINCIPAIS ===
-
-        // Ruy Lopez - Mais variações
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),
             ("e7e5", 95, "Defesa do Peão do Rei"),
@@ -338,77 +682,31 @@ impl OpeningBook {
             ("f8c5", 82, "Ruy Lopez - Classical Defense"),
         ]);
 
-        // Siciliana - Mais variações
+        // Gambito do Rei
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("c7c5", 95, "Defesa Siciliana"),
-            ("g1f3", 90, "Siciliana - Ataque Aberto"),
-            ("d7d6", 85, "Siciliana - Dragon Acelerado"),
-            ("d2d4", 82, "Siciliana - Variação Principal"),
-            ("c5d4", 80, "Siciliana - Captura Central"),
-            ("f3d4", 78, "Siciliana - Cavalo Central"),
-            ("g8f6", 75, "Siciliana - Najdorf Setup"),
+            ("e7e5", 95, "Defesa do Peão do Rei"),
+            ("f2f4", 75, "Gambito do Rei"),
+        ]);
+
+        // Italiana
+        self.add_opening_line(&mut board, vec![
+            ("e2e4", 100, "Abertura do Peão do Rei"),
+            ("e7e5", 95, "Defesa do Peão do Rei"),
+            ("g1f3", 93, "Cavaleiro do Rei"),
+            ("b8c6", 90, "Defesa do Cavaleiro"),
+            ("f1c4", 85, "Abertura Italiana"),
         ]);
 
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("c7c5", 95, "Defesa Siciliana"),
-            ("g1f3", 90, "Siciliana - Ataque Aberto"),
-            ("b8c6", 85, "Siciliana - Variação Acelerada"),
-            ("d2d4", 82, "Siciliana - Variação Principal"),
-            ("c5d4", 80, "Siciliana - Captura Central"),
-            ("f3d4", 78, "Siciliana - Cavalo Central"),
-            ("g7g6", 75, "Siciliana - Dragon Variation"),
+            ("e7e5", 95, "Defesa do Peão do Rei"),
+            ("g1f3", 93, "Cavaleiro do Rei"),
+            ("b8c6", 90, "Defesa do Cavaleiro"),
+            ("f1c4", 85, "Abertura Italiana"),
+            ("f8c5", 80, "Italiana - Variação Simétrica"),
         ]);
 
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("c7c5", 95, "Defesa Siciliana"),
-            ("g1f3", 90, "Siciliana - Ataque Aberto"),
-            ("e7e6", 85, "Siciliana - Paulsen Variation"),
-            ("d2d4", 82, "Siciliana - Variação Principal"),
-            ("c5d4", 80, "Siciliana - Captura Central"),
-        ]);
-
-        // Francesa - Mais variações
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("e7e6", 90, "Defesa Francesa"),
-            ("d2d4", 88, "Francesa - Ataque Principal"),
-            ("d7d5", 85, "Francesa - Variação Principal"),
-            ("b1c3", 82, "Francesa - Winawer Variation"),
-            ("f8b4", 78, "Francesa - Winawer Main Line"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("e7e6", 90, "Defesa Francesa"),
-            ("d2d4", 88, "Francesa - Ataque Principal"),
-            ("d7d5", 85, "Francesa - Variação Principal"),
-            ("e4e5", 80, "Francesa - Advance Variation"),
-            ("c7c5", 75, "Francesa - Advance Main Line"),
-        ]);
-
-        // Caro-Kann - Mais variações
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("c7c6", 85, "Defesa Caro-Kann"),
-            ("d2d4", 83, "Caro-Kann - Variação Principal"),
-            ("d7d5", 80, "Caro-Kann - Main Line"),
-            ("b1c3", 78, "Caro-Kann - Classical"),
-            ("d5e4", 75, "Caro-Kann - Exchange"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("e2e4", 100, "Abertura do Peão do Rei"),
-            ("c7c6", 85, "Defesa Caro-Kann"),
-            ("d2d4", 83, "Caro-Kann - Variação Principal"),
-            ("d7d5", 80, "Caro-Kann - Main Line"),
-            ("e4d5", 75, "Caro-Kann - Exchange Variation"),
-            ("c6d5", 72, "Caro-Kann - Exchange Main"),
-        ]);
-
-        // Italiana - Mais desenvolvimento
         self.add_opening_line(&mut board, vec![
             ("e2e4", 100, "Abertura do Peão do Rei"),
             ("e7e5", 95, "Defesa do Peão do Rei"),
@@ -429,73 +727,26 @@ impl OpeningBook {
             ("f8e7", 80, "Italiana - Hungarian Defense"),
         ]);
 
-        // Gambito da Dama - Mais variações
+        // === ABERTURAS DE FLANCO ===
         self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-            ("c2c4", 90, "Gambito da Dama"),
-            ("e7e6", 85, "Gambito da Dama Recusado"),
-            ("b1c3", 82, "QGD - Orthodox Defense"),
-            ("g8f6", 80, "QGD - Main Line"),
-            ("c1g5", 75, "QGD - Exchange Variation"),
+            ("c2c4", 85, "Abertura Inglesa"),
         ]);
 
         self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-            ("c2c4", 90, "Gambito da Dama"),
-            ("d5c4", 75, "Gambito da Dama Aceito"),
-            ("g1f3", 72, "QGA - Main Line"),
-            ("g8f6", 70, "QGA - Classical"),
+            ("c2c4", 85, "Abertura Inglesa"),
+            ("e7e5", 80, "Inglesa - Variação Reversa"),
         ]);
 
-        // Eslava - Mais variações
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("d7d5", 93, "Defesa Simétrica"),
-            ("c2c4", 90, "Gambito da Dama"),
-            ("c7c6", 80, "Defesa Eslava"),
-            ("g1f3", 78, "Eslava - Main Line"),
-            ("g8f6", 75, "Eslava - Classical"),
-            ("b1c3", 72, "Eslava - Orthodox"),
-        ]);
-
-        // King's Indian - Mais desenvolvimento
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-            ("g7g6", 85, "Índia do Rei - Fianchetto"),
-            ("b1c3", 82, "KID - Classical Setup"),
-            ("f8g7", 80, "KID - Main Line"),
-            ("e2e4", 75, "KID - Four Pawns Attack"),
-        ]);
-
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-            ("g7g6", 85, "Índia do Rei - Fianchetto"),
-            ("g2g3", 78, "KID - Fianchetto Variation"),
-            ("f8g7", 75, "KID - Fianchetto Main"),
-        ]);
-
-        // Nimzo-Indian
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-            ("e7e6", 85, "Sistema Clássico"),
-            ("b1c3", 82, "Nimzo-Indian Setup"),
-            ("f8b4", 80, "Nimzo-Indian Defense"),
-        ]);
-
-        // Abertura Inglesa - Mais variações
         self.add_opening_line(&mut board, vec![
             ("c2c4", 85, "Abertura Inglesa"),
             ("e7e5", 80, "Inglesa - Variação Reversa"),
             ("b1c3", 75, "Inglesa - Closed System"),
             ("b8c6", 70, "Inglesa - Closed Main"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("c2c4", 85, "Abertura Inglesa"),
+            ("g8f6", 78, "Inglesa - Sistema Índio"),
         ]);
 
         self.add_opening_line(&mut board, vec![
@@ -512,7 +763,15 @@ impl OpeningBook {
             ("b8c6", 65, "Inglesa - Four Knights"),
         ]);
 
-        // Reti - Mais desenvolvimento
+        self.add_opening_line(&mut board, vec![
+            ("g1f3", 80, "Abertura Reti"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("g1f3", 80, "Abertura Reti"),
+            ("d7d5", 75, "Reti - Sistema Clássico"),
+        ]);
+
         self.add_opening_line(&mut board, vec![
             ("g1f3", 80, "Abertura Reti"),
             ("d7d5", 75, "Reti - Sistema Clássico"),
@@ -523,8 +782,17 @@ impl OpeningBook {
         self.add_opening_line(&mut board, vec![
             ("g1f3", 80, "Abertura Reti"),
             ("g8f6", 75, "Reti - Variação Índia"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("g1f3", 80, "Abertura Reti"),
+            ("g8f6", 75, "Reti - Variação Índia"),
             ("c2c4", 70, "Reti - English Setup"),
             ("c7c5", 65, "Reti - Symmetrical"),
+        ]);
+
+        self.add_opening_line(&mut board, vec![
+            ("f2f4", 60, "Abertura dos Pássaros"),
         ]);
 
         // Scandinavian Defense
@@ -567,24 +835,6 @@ impl OpeningBook {
             ("g2g3", 70, "Dutch - Fianchetto"),
             ("g8f6", 68, "Dutch - Leningrad"),
         ]);
-
-        // Benoni Defense
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-            ("c7c5", 75, "Benoni Defense"),
-            ("d4d5", 72, "Benoni - Advance"),
-        ]);
-
-        // Budapest Gambit
-        self.add_opening_line(&mut board, vec![
-            ("d2d4", 95, "Abertura do Peão da Dama"),
-            ("g8f6", 90, "Defesa Índia do Rei"),
-            ("c2c4", 88, "Sistema Inglês"),
-            ("e7e5", 65, "Gambito de Budapeste"),
-        ]);
-
         // Livro carregado silenciosamente para compatibilidade UCI
     }
 
