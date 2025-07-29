@@ -1,8 +1,8 @@
 // Ficheiro: src/moves/queen.rs
-// Descrição: Lógica para gerar os lances da Dama.
+// Descrição: Lógica otimizada para gerar lances da Dama com funcionalidades avançadas
 
-use crate::{board::Board, types::{Move, Color}};
-use super::magic_bitboards::get_queen_attacks_magic;
+use crate::{board::Board, types::{Move, Color, Bitboard}};
+use super::magic_bitboards::{get_queen_attacks_magic, get_rook_attacks_magic, get_bishop_attacks_magic};
 
 /// Gera todos os lances pseudo-legais para a dama do jogador atual usando magic bitboards.
 pub fn generate_queen_moves(board: &Board) -> Vec<Move> {

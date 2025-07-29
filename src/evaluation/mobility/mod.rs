@@ -161,15 +161,15 @@ pub fn evaluate_mobility_modular(board: &Board, color: Color) -> i32 {
 }
 
 
-/// Computa cache de ataques detalhado por tipo de peça
+/// Computa cache de ataques detalhado por tipo de peça (OTIMIZADO)
 pub fn compute_attack_cache(board: &Board, color: Color) -> AttackCache {
     let mut cache = AttackCache::new();
     let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
     let all_pieces = board.white_pieces | board.black_pieces;
 
-    // Ataques de peões
+    // Ataques de peões usando método otimizado do board
     let pawns = board.pawns & pieces;
-    cache.pawn_attacks = compute_pawn_attacks(pawns, color);
+    cache.pawn_attacks = board.compute_pawn_attacks(pawns, color);
 
     // Ataques de cavalos
     let mut knights = board.knights & pieces;
@@ -186,30 +186,28 @@ pub fn compute_attack_cache(board: &Board, color: Color) -> AttackCache {
         cache.king_attacks = crate::moves::king::get_king_attacks_lookup(king_sq);
     }
 
-    // Ataques de bispos (incluindo rainhas)
+    // Ataques de bispos (incluindo rainhas) usando magic bitboards
     let mut bishops = (board.bishops | board.queens) & pieces;
     while bishops != 0 {
         let sq = bishops.trailing_zeros() as u8;
         bishops &= bishops - 1;
-        cache.bishop_attacks |= crate::moves::sliding::get_bishop_attacks(sq, all_pieces);
+        cache.bishop_attacks |= crate::moves::magic_bitboards::get_bishop_attacks_magic(sq, all_pieces);
     }
 
-    // Ataques de torres (incluindo rainhas)
+    // Ataques de torres (incluindo rainhas) usando magic bitboards
     let mut rooks = (board.rooks | board.queens) & pieces;
     while rooks != 0 {
         let sq = rooks.trailing_zeros() as u8;
         rooks &= rooks - 1;
-        cache.rook_attacks |= crate::moves::sliding::get_rook_attacks(sq, all_pieces);
+        cache.rook_attacks |= crate::moves::magic_bitboards::get_rook_attacks_magic(sq, all_pieces);
     }
 
-    // Ataques de rainhas (combinado)
+    // Ataques de rainhas (combinado) usando magic bitboards
     let mut queens = board.queens & pieces;
     while queens != 0 {
         let sq = queens.trailing_zeros() as u8;
         queens &= queens - 1;
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(sq, all_pieces);
-        let rook_attacks = crate::moves::sliding::get_rook_attacks(sq, all_pieces);
-        cache.queen_attacks |= bishop_attacks | rook_attacks;
+        cache.queen_attacks |= crate::moves::magic_bitboards::get_queen_attacks_magic(sq, all_pieces);
     }
 
     // Agrega todos os ataques
@@ -219,65 +217,12 @@ pub fn compute_attack_cache(board: &Board, color: Color) -> AttackCache {
     cache
 }
 
-/// Computa casas atacadas por uma cor (versão otimizada)
+/// Computa casas atacadas por uma cor (OTIMIZADO - usa board.compute_attacked_squares)
 pub fn compute_attacked_squares(board: &Board, color: Color) -> Bitboard {
-    let mut attacked = 0u64;
-    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let all_pieces = board.white_pieces | board.black_pieces;
-
-    // Ataques de peões
-    let pawns = board.pawns & pieces;
-    attacked |= compute_pawn_attacks(pawns, color);
-
-    // Ataques de cavalos
-    let mut knights = board.knights & pieces;
-    while knights != 0 {
-        let sq = knights.trailing_zeros() as u8;
-        knights &= knights - 1;
-        attacked |= crate::moves::knight::get_knight_attacks_lookup(sq);
-    }
-
-    // Ataques de reis
-    let kings = board.kings & pieces;
-    if kings != 0 {
-        let king_sq = kings.trailing_zeros() as u8;
-        attacked |= crate::moves::king::get_king_attacks_lookup(king_sq);
-    }
-
-    // Ataques de bispos e rainhas (diagonais)
-    let mut bishops = (board.bishops | board.queens) & pieces;
-    while bishops != 0 {
-        let sq = bishops.trailing_zeros() as u8;
-        bishops &= bishops - 1;
-        attacked |= crate::moves::sliding::get_bishop_attacks(sq, all_pieces);
-    }
-
-    // Ataques de torres e rainhas (linhas/colunas)
-    let mut rooks = (board.rooks | board.queens) & pieces;
-    while rooks != 0 {
-        let sq = rooks.trailing_zeros() as u8;
-        rooks &= rooks - 1;
-        attacked |= crate::moves::sliding::get_rook_attacks(sq, all_pieces);
-    }
-
-    attacked
+    // Usa a função otimizada do board que tem magic bitboards
+    board.compute_attacked_squares(color)
 }
 
-/// Computa ataques de peões
-pub fn compute_pawn_attacks(pawns: Bitboard, color: Color) -> Bitboard {
-    const NOT_A_FILE: Bitboard = 0xfefefefefefefefe;
-    const NOT_H_FILE: Bitboard = 0x7f7f7f7f7f7f7f7f;
-
-    if color == Color::White {
-        let left_attacks = (pawns & NOT_A_FILE) << 7;
-        let right_attacks = (pawns & NOT_H_FILE) << 9;
-        left_attacks | right_attacks
-    } else {
-        let left_attacks = (pawns & NOT_H_FILE) >> 7;
-        let right_attacks = (pawns & NOT_A_FILE) >> 9;
-        left_attacks | right_attacks
-    }
-}
 
 /// Determina a fase do jogo
 pub fn determine_game_phase(board: &Board) -> GamePhase {
@@ -326,7 +271,7 @@ pub mod utils {
                 // Se há peão inimigo que pode avançar para atacar nossa casa
                 let pawn_squares = get_set_bits(file_pawns);
                 for pawn_sq in pawn_squares {
-                    if can_pawn_attack_square(pawn_sq, square, context.enemy_color) {
+                    if super::super::utils::can_pawn_attack_square(pawn_sq, square, context.enemy_color) {
                         return false;
                     }
                 }
@@ -353,7 +298,7 @@ pub mod utils {
 
     /// Obtém máscara de arquivo
     pub fn get_file_mask(file: u8) -> Bitboard {
-        0x0101010101010101u64 << file
+        super::super::utils::get_file_mask(file)
     }
 
     /// Obtém máscara de fileira
@@ -366,23 +311,6 @@ pub mod utils {
         eval_utils::get_set_bits(bitboard)
     }
 
-    /// Verifica se peão pode atacar casa específica
-    pub fn can_pawn_attack_square(pawn_sq: u8, target_sq: u8, color: Color) -> bool {
-        let pawn_rank = pawn_sq / 8;
-        let pawn_file = pawn_sq % 8;
-        let target_rank = target_sq / 8;
-        let target_file = target_sq % 8;
-
-        if color == Color::White {
-            // Peão branco ataca para cima
-            target_rank > pawn_rank &&
-                (target_file as i8 - pawn_file as i8).abs() == 1
-        } else {
-            // Peão preto ataca para baixo
-            target_rank < pawn_rank &&
-                (target_file as i8 - pawn_file as i8).abs() == 1
-        }
-    }
 
     /// Verifica se casa está no centro
     pub fn is_central_square(square: u8) -> bool {

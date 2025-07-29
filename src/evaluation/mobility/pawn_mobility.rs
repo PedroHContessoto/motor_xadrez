@@ -118,37 +118,6 @@ pub fn analyze_pawn_mobility_specific(context: &MobilityContext) -> PawnAnalysis
     analysis
 }
 
-/// Verifica se peão é passado
-fn is_passed_pawn(pawn_sq: u8, color: Color, _our_pawns: Bitboard, enemy_pawns: Bitboard) -> bool {
-    let file = pawn_sq % 8;
-    let rank = pawn_sq / 8;
-
-    // Verifica arquivos adjacentes e o próprio arquivo
-    for check_file in (file.saturating_sub(1))..=(file.saturating_add(1)).min(7) {
-        let file_mask = get_file_mask(check_file);
-        let file_pawns = enemy_pawns & file_mask;
-
-        if file_pawns != 0 {
-            // Verifica se há peão inimigo que pode bloquear
-            let enemy_pawn_squares = get_set_bits(file_pawns);
-            for enemy_sq in enemy_pawn_squares {
-                let enemy_rank = enemy_sq / 8;
-
-                let blocks_advancement = if color == Color::White {
-                    enemy_rank > rank // Peão inimigo está à frente
-                } else {
-                    enemy_rank < rank // Peão inimigo está à frente
-                };
-
-                if blocks_advancement {
-                    return false;
-                }
-            }
-        }
-    }
-
-    true
-}
 
 /// Calcula bônus por peão passado baseado na proximidade de promoção
 fn calculate_passed_pawn_bonus(pawn_sq: u8, color: Color) -> i32 {
@@ -231,7 +200,7 @@ fn is_backward_pawn(pawn_sq: u8, color: Color, our_pawns: Bitboard, enemy_pawns:
     };
 
     let advance_bb = 1u64 << advance_sq;
-    let enemy_controlled = super::compute_pawn_attacks(enemy_pawns, !color);
+    let enemy_controlled = super::super::utils::compute_pawn_attacks(enemy_pawns, !color);
 
     (enemy_controlled & advance_bb) != 0
 }

@@ -1,5 +1,5 @@
-// Padrões avançados de endgame - triangulação, oposição à distância, etc.
-use crate::{board::Board, types::{Color, Bitboard}};
+// Padrões avançados de endgame com foco em finais práticos
+use crate::{board::Board, types::{Color, Bitboard, PieceKind}};
 use super::utils as eval_utils;
 
 /// Estrutura para análise avançada de padrões de endgame
@@ -11,6 +11,10 @@ pub struct EndgamePatterns {
     pub outflanking: i32,
     pub zugzwang_potential: i32,
     pub square_rule: i32,
+    pub king_activity: i32,
+    pub pawn_promotion_race: i32,
+    pub fortress_patterns: i32,
+    pub rook_endgame_bonus: i32,
 }
 
 impl EndgamePatterns {
@@ -22,12 +26,18 @@ impl EndgamePatterns {
             outflanking: 0,
             zugzwang_potential: 0,
             square_rule: 0,
+            king_activity: 0,
+            pawn_promotion_race: 0,
+            fortress_patterns: 0,
+            rook_endgame_bonus: 0,
         }
     }
 
     pub fn total_score(&self) -> i32 {
         self.king_opposition + self.distant_opposition + self.triangulation +
-            self.outflanking + self.zugzwang_potential + self.square_rule
+            self.outflanking + self.zugzwang_potential + self.square_rule +
+            self.king_activity + self.pawn_promotion_race + self.fortress_patterns +
+            self.rook_endgame_bonus
     }
 }
 
@@ -63,6 +73,18 @@ pub fn evaluate_endgame_patterns(board: &Board, color: Color) -> EndgamePatterns
 
     // Regra do quadrado para peões passados
     patterns.square_rule = evaluate_square_rule(board, color, our_king_sq, enemy_king_sq);
+
+    // Nova avaliação: Atividade do rei
+    patterns.king_activity = evaluate_king_activity_enhanced(board, color, our_king_sq);
+
+    // Nova avaliação: Corrida de promoção de peões
+    patterns.pawn_promotion_race = evaluate_pawn_promotion_race(board, color);
+
+    // Nova avaliação: Padrões de fortaleza
+    patterns.fortress_patterns = evaluate_fortress_patterns(board, color);
+
+    // Nova avaliação: Bônus específicos para finais de torre
+    patterns.rook_endgame_bonus = evaluate_rook_endgame_patterns(board, color);
 
     patterns
 }
@@ -249,7 +271,9 @@ fn evaluate_square_rule(board: &Board, color: Color, our_king: u8, enemy_king: u
 
     for &pawn_sq in &enemy_pawn_squares {
         // Verifica se é peão passado (simplificado)
-        if is_likely_passed_pawn(pawn_sq, !color, board) {
+        let enemy_pawns = board.pawns & if !color == Color::White { board.white_pieces } else { board.black_pieces };
+        let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+        if super::utils::is_passed_pawn(pawn_sq, !color, our_pawns, enemy_pawns) {
             let pawn_file = pawn_sq % 8;
             let pawn_rank = pawn_sq / 8;
 
@@ -267,7 +291,7 @@ fn evaluate_square_rule(board: &Board, color: Color, our_king: u8, enemy_king: u
                 56 + pawn_file // Rank 7
             };
 
-            let king_distance = eval_utils::calculate_square_distance(our_king, promotion_sq);
+            let king_distance = super::utils::king_distance(our_king, promotion_sq) as i32;
 
             // Regra do quadrado: se rei pode chegar antes do peão promover
             if king_distance <= promotion_distance {
@@ -281,38 +305,6 @@ fn evaluate_square_rule(board: &Board, color: Color, our_king: u8, enemy_king: u
     square_rule_score
 }
 
-/// Verifica se peão é provavelmente passado (versão simplificada)
-fn is_likely_passed_pawn(pawn_sq: u8, pawn_color: Color, board: &Board) -> bool {
-    let file = pawn_sq % 8;
-    let rank = pawn_sq / 8;
-
-    let enemy_pawns = board.pawns & if pawn_color == Color::White { board.black_pieces } else { board.white_pieces };
-
-    // Verifica arquivos adjacentes e o próprio arquivo
-    for check_file in (file.saturating_sub(1))..=(file.saturating_add(1)).min(7) {
-        let file_mask = 0x0101010101010101u64 << check_file;
-        let file_pawns = enemy_pawns & file_mask;
-
-        if file_pawns != 0 {
-            let pawn_squares = eval_utils::get_set_bits(file_pawns);
-            for enemy_sq in pawn_squares {
-                let enemy_rank = enemy_sq / 8;
-
-                let blocks_advancement = if pawn_color == Color::White {
-                    enemy_rank > rank // Peão inimigo está à frente
-                } else {
-                    enemy_rank < rank
-                };
-
-                if blocks_advancement {
-                    return false; // Há um peão inimigo bloqueando
-                }
-            }
-        }
-    }
-
-    true // Provavelmente passado
-}
 
 /// Avalia melhoria na atividade do rei baseada em padrões avançados
 pub fn evaluate_king_activity_advanced(board: &Board, color: Color) -> i32 {
@@ -331,3 +323,272 @@ pub fn evaluate_king_activity_advanced(board: &Board, color: Color) -> i32 {
     // Normaliza o score para não dominar outros fatores
     activity_score.clamp(-50, 50)
 }
+
+/// Avaliação aprimorada da atividade do rei em endgames
+fn evaluate_king_activity_enhanced(board: &Board, color: Color, king_sq: u8) -> i32 {
+    let mut activity_score = 0;
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    
+    // Só é relevante em endgames (≤12 peças)
+    if total_pieces > 12 {
+        return 0;
+    }
+
+    let king_file = king_sq % 8;
+    let king_rank = king_sq / 8;
+    
+    // Atividade baseada na centralização (mais importante no endgame)
+    let center_distance = ((king_file as f32 - 3.5).abs() + (king_rank as f32 - 3.5).abs()) as i32;
+    activity_score += (7 - center_distance) * 3; // Máximo +21
+    
+    // Bônus por estar próximo de peões inimigos (pressão)
+    let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let mut min_pawn_distance = 8;
+    
+    let mut pawn_bb = enemy_pawns;
+    while pawn_bb != 0 {
+        let pawn_sq = pawn_bb.trailing_zeros() as u8;
+        pawn_bb &= pawn_bb - 1;
+        
+        let pawn_file = pawn_sq % 8;
+        let pawn_rank = pawn_sq / 8;
+        let distance = ((king_file as i32 - pawn_file as i32).abs() + (king_rank as i32 - pawn_rank as i32).abs()) as u8;
+        min_pawn_distance = min_pawn_distance.min(distance);
+    }
+    
+    if min_pawn_distance < 8 {
+        activity_score += (8 - min_pawn_distance as i32) * 2; // Máximo +14
+    }
+    
+    // Bônus por suporte aos próprios peões passados
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let mut pawn_bb = our_pawns;
+    while pawn_bb != 0 {
+        let pawn_sq = pawn_bb.trailing_zeros() as u8;
+        pawn_bb &= pawn_bb - 1;
+        
+        let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+        let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+        if super::utils::is_passed_pawn(pawn_sq, color, our_pawns, enemy_pawns) {
+            let pawn_file = pawn_sq % 8;
+            let pawn_rank = pawn_sq / 8;
+            let distance = ((king_file as i32 - pawn_file as i32).abs() + (king_rank as i32 - pawn_rank as i32).abs()) as u8;
+            
+            if distance <= 2 {
+                activity_score += 15; // Rei próximo de peão passado
+            } else if distance <= 4 {
+                activity_score += 8;
+            }
+        }
+    }
+    
+    activity_score.clamp(0, 40)
+}
+
+/// Avalia corridas de promoção de peões
+fn evaluate_pawn_promotion_race(board: &Board, color: Color) -> i32 {
+    let mut race_score = 0;
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+    
+    let our_king = board.kings & if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_king = board.kings & if color == Color::White { board.black_pieces } else { board.white_pieces };
+    
+    if our_king == 0 || enemy_king == 0 {
+        return 0;
+    }
+    
+    let our_king_sq = our_king.trailing_zeros() as u8;
+    let enemy_king_sq = enemy_king.trailing_zeros() as u8;
+    
+    // Analisa nossos peões passados
+    let mut our_pawns_bb = our_pawns;
+    while our_pawns_bb != 0 {
+        let pawn_sq = our_pawns_bb.trailing_zeros() as u8;
+        our_pawns_bb &= our_pawns_bb - 1;
+        
+        let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+        let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+        if super::utils::is_passed_pawn(pawn_sq, color, our_pawns, enemy_pawns) {
+            let pawn_rank = pawn_sq / 8;
+            let promotion_sq = if color == Color::White {
+                pawn_sq + (7 - pawn_rank) * 8 // a8, b8, etc.
+            } else {
+                pawn_sq - pawn_rank * 8 // a1, b1, etc.
+            };
+            
+            let moves_to_promote = if color == Color::White { 7 - pawn_rank } else { pawn_rank };
+            let our_king_distance = super::utils::king_distance(our_king_sq, promotion_sq);
+            let enemy_king_distance = super::utils::king_distance(enemy_king_sq, promotion_sq);
+            
+            // Se nosso rei consegue promover antes do inimigo chegar
+            if our_king_distance + moves_to_promote < enemy_king_distance {
+                race_score += 30; // Corrida ganha
+            } else if our_king_distance + moves_to_promote == enemy_king_distance {
+                // Empate - depende de quem tem a vez
+                if board.to_move == color {
+                    race_score += 15; // Temos a vez, vantagem
+                } else {
+                    race_score += 5; // Não temos a vez, desvantagem
+                }
+            }
+        }
+    }
+    
+    // Analisa peões passados inimigos (penalidade)
+    let mut enemy_pawns_bb = enemy_pawns;
+    while enemy_pawns_bb != 0 {
+        let pawn_sq = enemy_pawns_bb.trailing_zeros() as u8;
+        enemy_pawns_bb &= enemy_pawns_bb - 1;
+        
+        let enemy_pawns = board.pawns & if !color == Color::White { board.white_pieces } else { board.black_pieces };
+        let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+        if super::utils::is_passed_pawn(pawn_sq, !color, our_pawns, enemy_pawns) {
+            let pawn_rank = pawn_sq / 8;
+            let promotion_sq = if color == Color::Black { // Inimigo é White
+                pawn_sq + (7 - pawn_rank) * 8
+            } else { // Inimigo é Black
+                pawn_sq - pawn_rank * 8
+            };
+            
+            let moves_to_promote = if color == Color::Black { 7 - pawn_rank } else { pawn_rank };
+            let our_king_distance = super::utils::king_distance(our_king_sq, promotion_sq);
+            let enemy_king_distance = super::utils::king_distance(enemy_king_sq, promotion_sq);
+            
+            // Se inimigo consegue promover antes de nós chegarmos
+            if enemy_king_distance + moves_to_promote < our_king_distance {
+                race_score -= 25; // Perdemos a corrida
+            }
+        }
+    }
+    
+    race_score.clamp(-50, 50)
+}
+
+/// Detecta padrões de fortaleza (posições defensivas)
+fn evaluate_fortress_patterns(board: &Board, color: Color) -> i32 {
+    let mut fortress_score = 0;
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    
+    // Fortalezas são mais comuns em endgames simples
+    if total_pieces > 8 {
+        return 0;
+    }
+    
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    
+    // Fortaleza de bispo + peões na diagonal certa
+    let our_bishops = board.bishops & our_pieces;
+    if our_bishops != 0 {
+        let bishop_sq = our_bishops.trailing_zeros() as u8;
+        let bishop_on_light = (bishop_sq / 8 + bishop_sq % 8) % 2 == 0;
+        
+        // Verifica se temos peões nas casas da cor certa
+        let our_pawns = board.pawns & our_pieces;
+        let mut pawn_fortress_count = 0;
+        
+        let mut pawns_bb = our_pawns;
+        while pawns_bb != 0 {
+            let pawn_sq = pawns_bb.trailing_zeros() as u8;
+            pawns_bb &= pawns_bb - 1;
+            
+            let pawn_on_light = (pawn_sq / 8 + pawn_sq % 8) % 2 == 0;
+            if pawn_on_light == bishop_on_light {
+                pawn_fortress_count += 1;
+            }
+        }
+        
+        if pawn_fortress_count >= 2 {
+            fortress_score += 20; // Fortaleza de bispo bem estabelecida
+        }
+    }
+    
+    // Fortaleza de torre na 7ª/2ª fileira
+    let our_rooks = board.rooks & our_pieces;
+    if our_rooks != 0 {
+        let rook_sq = our_rooks.trailing_zeros() as u8;
+        let rook_rank = rook_sq / 8;
+        
+        let enemy_king = board.kings & enemy_pieces;
+        if enemy_king != 0 {
+            let enemy_king_sq = enemy_king.trailing_zeros() as u8;
+            let enemy_king_rank = enemy_king_sq / 8;
+            
+            // Torre na 7ª fileira com rei inimigo na 8ª
+            if color == Color::White && rook_rank == 6 && enemy_king_rank == 7 {
+                fortress_score += 25;
+            } else if color == Color::Black && rook_rank == 1 && enemy_king_rank == 0 {
+                fortress_score += 25;
+            }
+        }
+    }
+    
+    fortress_score.clamp(0, 45)
+}
+
+/// Avaliação específica para finais de torre
+fn evaluate_rook_endgame_patterns(board: &Board, color: Color) -> i32 {
+    let mut rook_score = 0;
+    
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    
+    let our_rooks = board.rooks & our_pieces;
+    let enemy_rooks = board.rooks & enemy_pieces;
+    
+    // Só é relevante se há torres
+    if our_rooks == 0 {
+        return 0;
+    }
+    
+    let our_rook_sq = our_rooks.trailing_zeros() as u8;
+    let our_rook_file = our_rook_sq % 8;
+    let our_rook_rank = our_rook_sq / 8;
+    
+    // Torre ativa (7ª/2ª fileira)
+    if (color == Color::White && our_rook_rank == 6) || (color == Color::Black && our_rook_rank == 1) {
+        rook_score += 20;
+    }
+    
+    // Torre atrás de peão passado próprio
+    let our_pawns = board.pawns & our_pieces;
+    let mut pawns_bb = our_pawns;
+    while pawns_bb != 0 {
+        let pawn_sq = pawns_bb.trailing_zeros() as u8;
+        pawns_bb &= pawns_bb - 1;
+        
+        let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+        let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+        if super::utils::is_passed_pawn(pawn_sq, color, our_pawns, enemy_pawns) {
+            let pawn_file = pawn_sq % 8;
+            let pawn_rank = pawn_sq / 8;
+            
+            // Torre atrás do peão passado (muito bom)
+            if our_rook_file == pawn_file {
+                if (color == Color::White && our_rook_rank < pawn_rank) ||
+                   (color == Color::Black && our_rook_rank > pawn_rank) {
+                    rook_score += 30;
+                }
+            }
+        }
+    }
+    
+    // Torre cortando rei inimigo
+    if enemy_rooks == 0 { // Só vale se inimigo não tem torre
+        let enemy_king = board.kings & enemy_pieces;
+        if enemy_king != 0 {
+            let enemy_king_sq = enemy_king.trailing_zeros() as u8;
+            let enemy_king_file = enemy_king_sq % 8;
+            let enemy_king_rank = enemy_king_sq / 8;
+            
+            // Torre na mesma fileira ou coluna que o rei (pressão)
+            if our_rook_file == enemy_king_file || our_rook_rank == enemy_king_rank {
+                rook_score += 15;
+            }
+        }
+    }
+    
+    rook_score.clamp(0, 65)
+}
+

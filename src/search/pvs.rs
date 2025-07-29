@@ -3,14 +3,18 @@ use crate::{board::Board, evaluation, transposition::{TranspositionTable, EntryT
 use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::see_threshold};
 
 const MATE_VALUE: i32 = 99999;
-const FUTILITY_MARGIN: [i32; 8] = [0, 200, 350, 600, 900, 1200, 1500, 1800];
-const REVERSE_FUTILITY_MARGIN: [i32; 8] = [0, 120, 240, 360, 480, 600, 720, 840];
+const FUTILITY_MARGIN: [i32; 10] = [0, 150, 300, 450, 650, 850, 1100, 1350, 1600, 1900];
+const REVERSE_FUTILITY_MARGIN: [i32; 10] = [0, 80, 160, 280, 420, 580, 760, 960, 1180, 1420];
+const LMP_MARGIN: [usize; 10] = [0, 4, 8, 16, 24, 32, 40, 48, 56, 64]; // Late Move Pruning
 const LMR_MIN_DEPTH: u8 = 2;
-const LMR_MIN_MOVES: usize = 3;
-const PROBCUT_DEPTH: u8 = 5;
-const PROBCUT_MARGIN: i32 = 200;
-const SINGULAR_EXTENSION_DEPTH: u8 = 6;
-const ASPIRATION_WINDOW: i32 = 25;
+const LMR_MIN_MOVES: usize = 2; // Reduzido de 3 para 2
+const NMP_MIN_DEPTH: u8 = 3; // Null Move Pruning
+const NMP_REDUCTION: u8 = 3;
+const PROBCUT_DEPTH: u8 = 4; // Reduzido de 5 para 4
+const PROBCUT_MARGIN: i32 = 150; // Reduzido de 200 para 150
+const IID_MIN_DEPTH: u8 = 4; // Internal Iterative Deepening
+const SINGULAR_EXTENSION_DEPTH: u8 = 8; // Aumentado de 6 para 8
+const ASPIRATION_WINDOW: i32 = 15; // Reduzido de 25 para 15
 
 /// Principal Variation Search com melhorias para táticas
 pub fn pvs_search(
@@ -42,9 +46,11 @@ fn pvs_search_internal(
 ) -> i32 {
     context.nodes_searched += 1;
 
-    if context.nodes_searched & 2047 == 0 {
+    // Check time menos frequentemente para melhor performance
+    if context.nodes_searched & 4095 == 0 {
         if start_time.elapsed().as_millis() as u64 > max_time_ms {
             context.should_stop = true;
+            return 0;
         }
     }
 
@@ -52,7 +58,8 @@ fn pvs_search_internal(
         return 0;
     }
 
-    if depth > 64 {
+    // Aumenta limite de profundidade
+    if depth > 100 || ply > 100 {
         return evaluation::evaluate(board);
     }
 
@@ -77,13 +84,12 @@ fn pvs_search_internal(
         return 0;
     }
 
-    // IID (Internal Iterative Deepening) para melhorar a ordenação quando não há lance da TT
-    if is_pv_node && depth >= 6 && tt_move.is_none() {
-        let iid_depth = if depth > 8 { depth - 4 } else { depth - 2 }; // Redução adaptativa
+    // IID otimizado - menos custoso  
+    if depth >= IID_MIN_DEPTH && tt_move.is_none() {
+        let iid_depth = (depth / 2).max(1);
         pvs_search_internal(
             board, iid_depth, alpha, beta, tt, context, start_time, max_time_ms, false, ply
         );
-        // Após a busca IID, a TT deve ter um lance para esta posição
         if let Some(entry) = tt.probe(board.zobrist_hash) {
             tt_move = entry.best_move;
         }
@@ -95,10 +101,54 @@ fn pvs_search_internal(
 
     let in_check = board.is_king_in_check(board.to_move);
     let static_eval = if !in_check { evaluation::evaluate(board) } else { -MATE_VALUE / 2 };
+    
+    // Null Move Pruning - poda muito eficaz para ganhar profundidade
+    if !is_pv_node && !in_check && depth >= NMP_MIN_DEPTH && static_eval >= beta {
+        let mut null_board = *board;
+        null_board.to_move = !null_board.to_move;
+        null_board.en_passant_target = None;
+        
+        let reduction = NMP_REDUCTION + (depth / 6);
+        let null_score = -pvs_search_internal(
+            &null_board, 
+            depth.saturating_sub(reduction), 
+            -beta, 
+            -beta + 1, 
+            tt, 
+            context, 
+            start_time, 
+            max_time_ms, 
+            false, 
+            ply + 1
+        );
+        
+        if null_score >= beta {
+            // Verification search para evitar zugzwang
+            if depth >= 12 {
+                let verify_score = pvs_search_internal(
+                    board, 
+                    depth - 4, 
+                    beta - 1, 
+                    beta, 
+                    tt, 
+                    context, 
+                    start_time, 
+                    max_time_ms, 
+                    false, 
+                    ply
+                );
+                if verify_score >= beta {
+                    return null_score;
+                }
+            } else {
+                return null_score;
+            }
+        }
+    }
 
-    // Reverse Futility Pruning (Static Null Move Pruning)
-    if !is_pv_node && !in_check && depth <= 7 && static_eval != -MATE_VALUE / 2 {
-        let rfp_margin = REVERSE_FUTILITY_MARGIN[depth as usize];
+    // Reverse Futility Pruning otimizado
+    if !is_pv_node && !in_check && depth <= 9 && static_eval != -MATE_VALUE / 2 {
+        let rfp_margin = REVERSE_FUTILITY_MARGIN.get(depth as usize).unwrap_or(&1420);
         if static_eval - rfp_margin >= beta {
             return static_eval - rfp_margin;
         }
@@ -133,38 +183,7 @@ fn pvs_search_internal(
         }
     }
 
-    // Null Move Pruning (melhorada)
-    if depth >= 2 && !is_pv_node && !in_check && static_eval >= beta && has_non_pawn_material(board) {
-        let mut null_board = *board;
-        null_board.to_move = !null_board.to_move;
-        null_board.en_passant_target = None;
-        null_board.halfmove_clock += 1;
-
-        // Redução adaptativa baseada na profundidade e margem de avaliação
-        let eval_margin = static_eval - beta;
-        let base_reduction = if depth <= 6 { 3 } else { 4 };
-        let eval_reduction = (eval_margin / 200).min(2) as u8;
-        let r = base_reduction + eval_reduction;
-        let null_depth = depth.saturating_sub(r);
-
-        let null_score = -pvs_search_internal(
-            &null_board, null_depth, -beta, -beta + 1, tt, context, start_time, max_time_ms, false, ply + 1
-        );
-
-        if null_score >= beta {
-            // Verificação apenas em profundidades mais altas
-            if depth < 14 || null_score >= MATE_VALUE - 100 {
-                return beta;
-            }
-            let verify_depth = depth.saturating_sub(r + 2);
-            let verify_score = pvs_search_internal(
-                board, verify_depth, beta - 1, beta, tt, context, start_time, max_time_ms, false, ply
-            );
-            if verify_score >= beta {
-                return beta;
-            }
-        }
-    }
+    // Função auxiliar já implementada - Null Move Pruning já feito acima
 
     let legal_moves = board.generate_legal_moves();
 
@@ -207,6 +226,15 @@ fn pvs_search_internal(
         // Usa copy-make para performance
         let temp_board = board.make_move_copy(*mv);
 
+        // Verifica se movimento é um sacrifício perigoso sem compensação aparente
+        if board.is_capture(*mv) && depth >= 3 {
+            let see_value = super::see::see(board, *mv);
+            if see_value < -200 {
+                // Sacrifício significativo - requer busca mais profunda
+                // Não aplicar pruning agressivo
+            }
+        }
+
         context.push_move(*mv);
 
         let gives_check = temp_board.is_king_in_check(!board.to_move);
@@ -225,9 +253,9 @@ fn pvs_search_internal(
             }
         }
 
-        // Late Move Count Pruning
-        if depth <= 8 && !is_pv_node && !in_check && !gives_check && !is_capture 
-            && mv.promotion.is_none() && moves_searched >= late_move_count_threshold(depth) {
+        // Late Move Pruning otimizado
+        if depth <= 9 && !is_pv_node && !in_check && !gives_check && !is_capture 
+            && mv.promotion.is_none() && moves_searched >= *LMP_MARGIN.get(depth as usize).unwrap_or(&64) {
             moves_searched += 1;
             context.pop_move();
             continue;
@@ -284,6 +312,11 @@ fn pvs_search_internal(
                 
                 // Reduz menos se a posição é tática
                 if is_tactical_position(board) {
+                    reduction = reduction.saturating_sub(1);
+                }
+                
+                // Reduz menos para movimentos que escapam de ataques
+                if mv.promotion.is_none() && is_escaping_move(board, *mv) {
                     reduction = reduction.saturating_sub(1);
                 }
                 
@@ -454,4 +487,12 @@ fn has_hanging_pieces_simple(board: &Board) -> bool {
         }
     }
     false
+}
+
+// is_recapture já definida anteriormente
+
+/// Verifica se movimento escapa de ataque
+fn is_escaping_move(board: &Board, mv: Move) -> bool {
+    // Verifica se a casa de origem está sendo atacada
+    board.is_square_attacked_by(mv.from, !board.to_move)
 }

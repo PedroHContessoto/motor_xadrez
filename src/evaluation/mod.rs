@@ -106,6 +106,9 @@ fn evaluate_color(board: &Board, color: Color, game_phase: &game_phase::GamePhas
         },
         game_phase::GamePhase::Endgame => {
             score += evaluate_king_activity(board, color);
+            // Nova avaliação: padrões avançados de endgame
+            let endgame_patterns = endgame_patterns::evaluate_endgame_patterns(board, color);
+            score += endgame_patterns.total_score().clamp(-100, 100);
         },
         _ => {}
     }

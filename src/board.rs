@@ -409,44 +409,49 @@ impl Board {
         self.is_square_attacked_by(king_square, !color)
     }
 
-    /// Verifica se uma casa é atacada por peças da cor especificada
+    /// Verifica se uma casa é atacada por peças da cor especificada (OTIMIZADO com magic bitboards)
     pub fn is_square_attacked_by(&self, square: u8, attacking_color: Color) -> bool {
-        let square_bb = 1u64 << square;
         let attacking_pieces = if attacking_color == Color::White { self.white_pieces } else { self.black_pieces };
 
         // Early exit: se não há peças atacantes, não há ataques
         if attacking_pieces == 0 { return false; }
 
+        let all_pieces = self.white_pieces | self.black_pieces;
+        let square_bb = 1u64 << square;
+
         // Verifica ataques de peões (mais comuns, verificar primeiro)
-        if attacking_color == Color::White {
-            // Peões brancos atacam diagonalmente para cima
-            let pawn_attacks = ((square_bb >> 7) & 0xfefefefefefefefe) | ((square_bb >> 9) & 0x7f7f7f7f7f7f7f7f);
-            if (pawn_attacks & self.pawns & attacking_pieces) != 0 { return true; }
-        } else {
-            // Peões pretos atacam diagonalmente para baixo  
-            let pawn_attacks = ((square_bb << 7) & 0x7f7f7f7f7f7f7f7f) | ((square_bb << 9) & 0xfefefefefefefefe);
-            if (pawn_attacks & self.pawns & attacking_pieces) != 0 { return true; }
+        let attacking_pawns = self.pawns & attacking_pieces;
+        if attacking_pawns != 0 {
+            let pawn_attacks = self.compute_pawn_attacks(attacking_pawns, attacking_color);
+            if (pawn_attacks & square_bb) != 0 { return true; }
         }
 
-        // Verifica ataques de cavalos (rápido)
-        if (self.knights & attacking_pieces) != 0 {
-            let knight_attacks = self.get_knight_attacks(square);
-            if (knight_attacks & self.knights & attacking_pieces) != 0 { return true; }
+        // Verifica ataques de cavalos (usando lookup table ultra rápida)
+        let attacking_knights = self.knights & attacking_pieces;
+        if attacking_knights != 0 {
+            let knight_attacks = crate::moves::knight::get_knight_attacks_lookup(square);
+            if (knight_attacks & attacking_knights) != 0 { return true; }
         }
 
-        // Verifica ataques do rei (rápido)
-        if (self.kings & attacking_pieces) != 0 {
-            let king_attacks = self.get_king_attacks(square);
-            if (king_attacks & self.kings & attacking_pieces) != 0 { return true; }
+        // Verifica ataques do rei (usando lookup table ultra rápida)
+        let attacking_kings = self.kings & attacking_pieces;
+        if attacking_kings != 0 {
+            let king_attacks = crate::moves::king::get_king_attacks_lookup(square);
+            if (king_attacks & attacking_kings) != 0 { return true; }
         }
 
-        // Verifica ataques de peças deslizantes (mais lento, verificar por último)
-        if (self.bishops & attacking_pieces) != 0 || (self.queens & attacking_pieces) != 0 {
-            if self.is_attacked_by_sliding_piece(square, attacking_color, true) { return true; }
+        // Verifica ataques de bispos e rainhas (diagonais) usando magic bitboards
+        let attacking_bishops_queens = (self.bishops | self.queens) & attacking_pieces;
+        if attacking_bishops_queens != 0 {
+            let bishop_attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(square, all_pieces);
+            if (bishop_attacks & attacking_bishops_queens) != 0 { return true; }
         }
 
-        if (self.rooks & attacking_pieces) != 0 || (self.queens & attacking_pieces) != 0 {
-            if self.is_attacked_by_sliding_piece(square, attacking_color, false) { return true; }
+        // Verifica ataques de torres e rainhas (linhas/colunas) usando magic bitboards
+        let attacking_rooks_queens = (self.rooks | self.queens) & attacking_pieces;
+        if attacking_rooks_queens != 0 {
+            let rook_attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(square, all_pieces);
+            if (rook_attacks & attacking_rooks_queens) != 0 { return true; }
         }
 
         false
@@ -460,40 +465,138 @@ impl Board {
         crate::moves::king::get_king_attacks_lookup(square)
     }
 
+    /// Computa todas as casas atacadas por uma cor usando magic bitboards (OTIMIZADO)
+    pub fn compute_attacked_squares(&self, color: Color) -> Bitboard {
+        let mut attacked = 0u64;
+        let pieces = if color == Color::White { self.white_pieces } else { self.black_pieces };
+        let all_pieces = self.white_pieces | self.black_pieces;
+
+        // Ataques de peões (mais rápido primeiro)
+        let pawns = self.pawns & pieces;
+        if pawns != 0 {
+            attacked |= self.compute_pawn_attacks(pawns, color);
+        }
+
+        // Ataques de cavalos
+        let mut knights = self.knights & pieces;
+        while knights != 0 {
+            let sq = knights.trailing_zeros() as u8;
+            knights &= knights - 1;
+            attacked |= crate::moves::knight::get_knight_attacks_lookup(sq);
+        }
+
+        // Ataques de reis
+        let kings = self.kings & pieces;
+        if kings != 0 {
+            let king_sq = kings.trailing_zeros() as u8;
+            attacked |= crate::moves::king::get_king_attacks_lookup(king_sq);
+        }
+
+        // Ataques de bispos e rainhas (diagonais) usando magic bitboards
+        let mut bishops = (self.bishops | self.queens) & pieces;
+        while bishops != 0 {
+            let sq = bishops.trailing_zeros() as u8;
+            bishops &= bishops - 1;
+            attacked |= crate::moves::magic_bitboards::get_bishop_attacks_magic(sq, all_pieces);
+        }
+
+        // Ataques de torres e rainhas (linhas/colunas) usando magic bitboards
+        let mut rooks = (self.rooks | self.queens) & pieces;
+        while rooks != 0 {
+            let sq = rooks.trailing_zeros() as u8;
+            rooks &= rooks - 1;
+            attacked |= crate::moves::magic_bitboards::get_rook_attacks_magic(sq, all_pieces);
+        }
+
+        attacked
+    }
+
+    /// Computa ataques de peões para um bitboard de peões
+    pub fn compute_pawn_attacks(&self, pawns: Bitboard, color: Color) -> Bitboard {
+        const NOT_A_FILE: Bitboard = 0xfefefefefefefefe;
+        const NOT_H_FILE: Bitboard = 0x7f7f7f7f7f7f7f7f;
+
+        if color == Color::White {
+            let left_attacks = (pawns & NOT_A_FILE) << 7;
+            let right_attacks = (pawns & NOT_H_FILE) << 9;
+            left_attacks | right_attacks
+        } else {
+            let left_attacks = (pawns & NOT_H_FILE) >> 7;
+            let right_attacks = (pawns & NOT_A_FILE) >> 9;
+            left_attacks | right_attacks
+        }
+    }
+
+    /// Verifica se uma casa é atacada por peças específicas usando magic bitboards (ULTRA OTIMIZADO)
+    pub fn is_square_attacked_by_piece_type(&self, square: u8, attacking_color: Color, piece_types: &[PieceKind]) -> bool {
+        let attacking_pieces = if attacking_color == Color::White { self.white_pieces } else { self.black_pieces };
+        let all_pieces = self.white_pieces | self.black_pieces;
+
+        for &piece_type in piece_types {
+            let pieces_of_type = match piece_type {
+                PieceKind::Pawn => self.pawns & attacking_pieces,
+                PieceKind::Knight => self.knights & attacking_pieces,
+                PieceKind::Bishop => self.bishops & attacking_pieces,
+                PieceKind::Rook => self.rooks & attacking_pieces,
+                PieceKind::Queen => self.queens & attacking_pieces,
+                PieceKind::King => self.kings & attacking_pieces,
+            };
+
+            if pieces_of_type == 0 { continue; }
+
+            let can_attack = match piece_type {
+                PieceKind::Pawn => {
+                    let pawn_attacks = self.compute_pawn_attacks(pieces_of_type, attacking_color);
+                    (pawn_attacks & (1u64 << square)) != 0
+                }
+                PieceKind::Knight => {
+                    let knight_attacks = crate::moves::knight::get_knight_attacks_lookup(square);
+                    (knight_attacks & pieces_of_type) != 0
+                }
+                PieceKind::King => {
+                    let king_attacks = crate::moves::king::get_king_attacks_lookup(square);
+                    (king_attacks & pieces_of_type) != 0
+                }
+                PieceKind::Bishop => {
+                    let bishop_attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(square, all_pieces);
+                    (bishop_attacks & pieces_of_type) != 0
+                }
+                PieceKind::Rook => {
+                    let rook_attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(square, all_pieces);
+                    (rook_attacks & pieces_of_type) != 0
+                }
+                PieceKind::Queen => {
+                    let queen_attacks = crate::moves::magic_bitboards::get_queen_attacks_magic(square, all_pieces);
+                    (queen_attacks & pieces_of_type) != 0
+                }
+            };
+
+            if can_attack { return true; }
+        }
+
+        false
+    }
+
+    /// Verifica se uma casa é atacada por peças deslizantes usando magic bitboards (ULTRA RÁPIDO)
     fn is_attacked_by_sliding_piece(&self, square: u8, attacking_color: Color, is_diagonal: bool) -> bool {
         let attacking_pieces = if attacking_color == Color::White { self.white_pieces } else { self.black_pieces };
         let all_pieces = self.white_pieces | self.black_pieces;
 
-        let directions = if is_diagonal { &[7i8, 9, -7, -9] } else { &[1i8, -1, 8, -8] };
-        let piece_types = if is_diagonal {
-            (self.bishops | self.queens) & attacking_pieces
+        if is_diagonal {
+            // Verifica ataques de bispos e rainhas (diagonais)
+            let attacking_bishops_queens = (self.bishops | self.queens) & attacking_pieces;
+            if attacking_bishops_queens == 0 { return false; }
+
+            let bishop_attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(square, all_pieces);
+            (bishop_attacks & attacking_bishops_queens) != 0
         } else {
-            (self.rooks | self.queens) & attacking_pieces
-        };
+            // Verifica ataques de torres e rainhas (linhas/colunas)
+            let attacking_rooks_queens = (self.rooks | self.queens) & attacking_pieces;
+            if attacking_rooks_queens == 0 { return false; }
 
-        for &direction in directions {
-            let mut current = square as i8;
-            loop {
-                let prev = current;
-                current += direction;
-
-                if current < 0 || current >= 64 { break; }
-
-                // Verifica wrap-around
-                let prev_file = prev % 8;
-                let curr_file = current % 8;
-                if (curr_file - prev_file).abs() > 1 { break; }
-
-                let current_bb = 1u64 << current;
-
-                // Se encontrou uma peça atacante do tipo correto
-                if (current_bb & piece_types) != 0 { return true; }
-
-                // Se encontrou qualquer peça, para a busca nesta direção
-                if (current_bb & all_pieces) != 0 { break; }
-            }
+            let rook_attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(square, all_pieces);
+            (rook_attacks & attacking_rooks_queens) != 0
         }
-        false
     }
 
     /// Verifica se a posição atual é xeque-mate

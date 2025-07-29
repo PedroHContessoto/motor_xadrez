@@ -11,18 +11,25 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="arrumando arrumando busca e inteligencia">
-      <change afterPath="$PROJECT_DIR$/src/intrinsics.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/moves/magic_bitboards.rs" afterDir="false" />
+    <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_18_07_2025_14_41_[Changes]/shelved.patch" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_18_07_2025_14_41__Changes_.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/board.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/board.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/endgame_patterns.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/endgame_patterns.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/material.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/material.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/bishop_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/bishop_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/coordination.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/coordination.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/king_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/king_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/knight_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/knight_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/pawn_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/pawn_mobility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/queen_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/queen_mobility.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/evaluation/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/moves/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/threats.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/threats.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/utils.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/utils.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/moves/queen.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/queen.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/moves/sliding.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/moves/sliding.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/search/ordering.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/ordering.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/search/quiescence.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/quiescence.rs" afterDir="false" />
@@ -43,7 +50,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="motor_simples_1800" />
+        <entry key="$PROJECT_DIR$" value="pelanca6" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -71,26 +78,26 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "pelanca6",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "D:/motor_xadrez",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
-    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
-    "org.rust.first.attach.projects": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;pelanca7&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/motor_xadrez&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
+    &quot;org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon&quot;: &quot;&quot;,
+    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RunManager" selected="Cargo.Run motor_xadrez">
     <configuration name="Run motor_xadrez" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="buildProfileId" value="dev" />
@@ -155,6 +162,8 @@
       <workItem from="1753141817653" duration="79000" />
       <workItem from="1753142126836" duration="44076000" />
       <workItem from="1753456304505" duration="1966000" />
+      <workItem from="1753740143849" duration="428000" />
+      <workItem from="1753745115931" duration="2289000" />
     </task>
     <task id="LOCAL-00001" summary="add treino">
       <option name="closed" value="true" />
@@ -204,7 +213,15 @@
       <option name="project" value="LOCAL" />
       <updated>1753458169948</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="add mate">
+      <option name="closed" value="true" />
+      <created>1753734029174</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1753734029174</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -215,6 +232,7 @@
     <MESSAGE value="primeiro modelo funcional" />
     <MESSAGE value="arrumando pensamento no arena" />
     <MESSAGE value="arrumando arrumando busca e inteligencia" />
-    <option name="LAST_COMMIT_MESSAGE" value="arrumando arrumando busca e inteligencia" />
+    <MESSAGE value="add mate" />
+    <option name="LAST_COMMIT_MESSAGE" value="add mate" />
   </component>
 </project>

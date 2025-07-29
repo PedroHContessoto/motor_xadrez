@@ -26,11 +26,14 @@ pub fn order_moves(
         if Some(mv) == tt_move {
             score = 2_000_000; // Prioridade absoluta
         }
-        // 2. Capturas (ordenadas por SEE + MVV-LVA otimizada)
+        // 2. Capturas (ordenadas por SEE + MVV-LVA com proteção contra sacrifícios)
         else if board.is_capture(mv) {
             let see_value = see(board, mv);
             let captured_piece_value = get_captured_piece_value(board, mv);
             let attacking_piece_value = get_attacking_piece_value(board, mv);
+            
+            // Detecta sacrifícios arriscados (peça valiosa por peça menor)
+            let is_risky_sacrifice = attacking_piece_value > captured_piece_value + 200 && see_value < -50;
             
             if see_value > 0 {
                 // Captura boa: SEE + MVV-LVA
@@ -38,9 +41,15 @@ pub fn order_moves(
             } else if see_value == 0 {
                 // Troca igual
                 score = 1_600_000 + captured_piece_value;
+            } else if see_value >= -100 && !is_risky_sacrifice {
+                // Captura ligeiramente ruim (ainda considerável se não for sacrifício arriscado)
+                score = 300_000 + see_value + captured_piece_value;
             } else {
-                // Captura ruim mas ainda considera
-                score = 400_000 + see_value + captured_piece_value;
+                // Captura muito ruim ou sacrifício arriscado - baixa prioridade
+                score = 50_000 + see_value + captured_piece_value;
+                if is_risky_sacrifice {
+                    score -= 200_000; // Penalidade extra para sacrifícios arriscados
+                }
             }
         }
         // 3. Killer moves (movimentos silenciosos que causaram cutoff)

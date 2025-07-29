@@ -156,7 +156,8 @@ fn evaluate_knights_enhanced(board: &Board, mut knight_bb: Bitboard, color: Colo
         score += MATERIAL_VALUES[PieceKind::Knight as usize] + positional_score;
 
         // Bônus por outpost (posição segura em território inimigo)
-        if is_outpost(sq as u8, color) && defended_by_own_pawn(board, sq as u8, color) {
+        let enemy_pawns = board.pawns & if color == Color::White { board.black_pieces } else { board.white_pieces };
+        if super::utils::is_outpost(sq as u8, color, enemy_pawns) && defended_by_own_pawn(board, sq as u8, color) {
             let outpost_bonus = match game_phase {
                 GamePhase::Opening => 20,
                 GamePhase::Middlegame => 30,
@@ -172,56 +173,7 @@ fn evaluate_knights_enhanced(board: &Board, mut knight_bb: Bitboard, color: Colo
     score
 }
 
-/// Verifica se uma casa é um outpost (ranks 4-5 para brancas, sem ataques de peões inimigos)
-fn is_outpost(square: u8, color: Color) -> bool {
-    let rank = square / 8;
 
-    match color {
-        Color::White => {
-            // Ranks 4-5 (0-indexed: 3-4) são considerados outposts
-            if rank < 3 || rank > 4 {
-                return false;
-            }
-
-            // Verifica se não há peões inimigos que podem atacar
-            !can_enemy_pawns_attack(square, Color::Black)
-        },
-        Color::Black => {
-            // Ranks 5-4 (0-indexed: 4-3) são considerados outposts  
-            if rank < 3 || rank > 4 {
-                return false;
-            }
-
-            !can_enemy_pawns_attack(square, Color::White)
-        }
-    }
-}
-
-/// Verifica se peões inimigos podem atacar uma casa
-fn can_enemy_pawns_attack(square: u8, enemy_color: Color) -> bool {
-    let file = square % 8;
-    let rank = square / 8;
-
-    match enemy_color {
-        Color::White => {
-            // Peões brancos atacam diagonalmente para cima
-            if rank == 0 { return false; }
-
-            // Verifica files adjacentes - versão conservadora (assume que pode haver peões)
-            if file > 0 && rank < 7 { return true; }
-            if file < 7 && rank < 7 { return true; }
-            false
-        },
-        Color::Black => {
-            // Peões pretos atacam diagonalmente para baixo
-            if rank == 7 { return false; }
-
-            if file > 0 && rank > 0 { return true; }
-            if file < 7 && rank > 0 { return true; }
-            false
-        }
-    }
-}
 
 /// Verifica se cavalo está defendido por peão próprio
 fn defended_by_own_pawn(board: &Board, square: u8, color: Color) -> bool {

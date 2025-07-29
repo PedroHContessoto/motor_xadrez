@@ -1,6 +1,7 @@
 // Mobilidade e estratégia avançada de bispos
 use crate::types::{Color, Bitboard};
 use super::{MobilityContext, MobilityResult, GamePhase, utils::*};
+use super::super::pawn_structure; // Adicionado para integração
 
 /// Pesos para diferentes aspectos da estratégia de bispos
 #[derive(Debug, Clone, Copy)]
@@ -18,14 +19,14 @@ pub struct BishopWeights {
 impl Default for BishopWeights {
     fn default() -> Self {
         BishopWeights {
-            mobility_per_square: [1, 2, 2],      // Reduzido de [3,4,4] -> [1,2,2]
-            long_diagonal: [5, 6, 4],            // Reduzido de [12,15,10] -> [5,6,4]
-            bishop_pair: [8, 12, 16],            // Reduzido de [20,30,40] -> [8,12,16]
-            fianchetto: [3, 4, 2],               // Reduzido de [8,10,6] -> [3,4,2]
-            trapped_penalty: [-10, -12, -8],     // Reduzido de [-25,-30,-20] -> [-10,-12,-8]
-            color_complex: [3, 5, 6],            // Reduzido de [8,12,15] -> [3,5,6]
-            pin_potential: [2, 4, 3],            // Reduzido de [6,10,8] -> [2,4,3]
-            diagonal_dominance: [2, 3, 2],       // Reduzido de [5,8,6] -> [2,3,2]
+            mobility_per_square: [1, 2, 2],
+            long_diagonal: [5, 6, 4],
+            bishop_pair: [8, 8, 12], // Ajustado: reduzido no meio-jogo, aumentado no final
+            fianchetto: [3, 4, 2],
+            trapped_penalty: [-12, -15, -10], // Aumentado de [-10, -12, -8]
+            color_complex: [3, 5, 6],
+            pin_potential: [2, 4, 3],
+            diagonal_dominance: [2, 3, 2],
         }
     }
 }
@@ -98,10 +99,11 @@ pub fn analyze_bishop_strategy(context: &MobilityContext) -> BishopAnalysis {
     // Bônus por par de bispos
     if bishop_count >= 2 {
         analysis.bishop_pair_bonus = 1;
-
-        // Bônus extra se bispos estão em casas de cores diferentes
-        if has_bishops_on_different_colors(&bishop_squares) {
-            analysis.bishop_pair_bonus += 1;
+        // Novo: Reduz bônus se estrutura fechada
+        if !is_closed_position(context) {
+            if has_bishops_on_different_colors(&bishop_squares) {
+                analysis.bishop_pair_bonus += 1;
+            }
         }
     }
 
@@ -190,17 +192,17 @@ fn evaluate_diagonal_control(bishop_sq: u8, context: &MobilityContext) -> i32 {
     let mut control_score = 0;
     let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
 
-    // Diagonal principal (a1-h8)
-    if is_on_main_diagonal(bishop_sq) {
-        let main_diagonal = get_main_diagonal_mask();
-        let controls_main = (attacks & main_diagonal).count_ones() as i32;
+    // Novo: Usar máscaras pré-computadas para diagonais principais
+    const MAIN_DIAGONAL: Bitboard = 0x8040201008040201u64;
+    const ANTI_DIAGONAL: Bitboard = 0x0102040810204080u64;
+
+    if (1u64 << bishop_sq) & MAIN_DIAGONAL != 0 {
+        let controls_main = (attacks & MAIN_DIAGONAL).count_ones() as i32;
         control_score += controls_main * 2;
     }
 
-    // Diagonal anti-principal (h1-a8)
-    if is_on_anti_diagonal(bishop_sq) {
-        let anti_diagonal = get_anti_diagonal_mask();
-        let controls_anti = (attacks & anti_diagonal).count_ones() as i32;
+    if (1u64 << bishop_sq) & ANTI_DIAGONAL != 0 {
+        let controls_anti = (attacks & ANTI_DIAGONAL).count_ones() as i32;
         control_score += controls_anti * 2;
     }
 
@@ -213,72 +215,22 @@ fn evaluate_diagonal_control(bishop_sq: u8, context: &MobilityContext) -> i32 {
     control_score
 }
 
-/// Verifica se casa está na diagonal principal
-fn is_on_main_diagonal(square: u8) -> bool {
-    let file = square % 8;
-    let rank = square / 8;
-    file == rank
-}
-
-/// Verifica se casa está na diagonal anti-principal
-fn is_on_anti_diagonal(square: u8) -> bool {
-    let file = square % 8;
-    let rank = square / 8;
-    file + rank == 7
-}
-
-/// Obtém máscara da diagonal principal
-fn get_main_diagonal_mask() -> Bitboard {
-    0x8040201008040201u64
-}
-
-/// Obtém máscara da diagonal anti-principal
-fn get_anti_diagonal_mask() -> Bitboard {
-    0x0102040810204080u64
-}
-
-/// Calcula comprimento das diagonais controladas
+/// Calcula comprimento das diagonais controladas (OTIMIZADO - simples popcount das diagonais)
 fn calculate_diagonal_length(bishop_sq: u8, attacks: Bitboard) -> i32 {
-    // Implementação simplificada - conta casas atacadas nas direções diagonais
-    let directions = [7, 9, -7, -9]; // NE, NW, SE, SW
-    let mut max_length = 0;
-
-    for &dir in &directions {
-        let mut length = 0;
-        let mut current_sq = bishop_sq as i32;
-
-        loop {
-            let previous_sq = current_sq;
-            current_sq += dir;
-
-            // Verifica limites do tabuleiro
-            if current_sq < 0 || current_sq > 63 {
-                break;
-            }
-
-            // CRÍTICO: Verifica wrap-around de arquivo
-            let prev_file = (previous_sq % 8) as i32;
-            let curr_file = (current_sq % 8) as i32;
-            if (curr_file - prev_file).abs() > 1 {
-                break; // Passou para outro arquivo
-            }
-
-            if (attacks & (1u64 << current_sq)) != 0 {
-                length += 1;
-            } else {
-                break;
-            }
-
-            // Proteção adicional contra loops infinitos
-            if length > 7 {
-                break;
-            }
-        }
-
-        max_length = max_length.max(length);
+    // Usa popcount das casas atacadas para aproximar o comprimento das diagonais
+    // Muito mais rápido que loops manuais
+    let attack_count = attacks.count_ones() as i32;
+    
+    // Aproximação: se o bispo ataca muitas casas, tem diagonais longas
+    if attack_count >= 10 {
+        7 // Diagonal máxima
+    } else if attack_count >= 7 {
+        6
+    } else if attack_count >= 5 {
+        5
+    } else {
+        attack_count.min(7)
     }
-
-    max_length
 }
 
 /// Verifica se bispo está em fianchetto
@@ -286,7 +238,7 @@ fn is_fianchetto_bishop(bishop_sq: u8, color: Color) -> bool {
     let fianchetto_squares = if color == Color::White {
         [1, 6, 57, 62] // b1, g1, b8, g8
     } else {
-        [1, 6, 57, 62] // Mesmas casas mas perspectiva oposta
+        [1, 6, 57, 62]
     };
 
     fianchetto_squares.contains(&bishop_sq)
@@ -298,28 +250,30 @@ fn is_trapped_bishop(bishop_sq: u8, context: &MobilityContext) -> bool {
     let legal_moves = attacks & !context.our_pieces;
     let safe_moves = legal_moves & !context.enemy_attacked_squares;
 
-    // Bispo está preso se tem poucas casas seguras
-    safe_moves.count_ones() <= 2
+    // Novo: Verifica se bispo está bloqueado por peões próprios
+    let is_light = is_light_square(bishop_sq);
+    let our_pawns = context.board.pawns & context.our_pieces;
+    let same_color_squares = get_squares_of_color(is_light);
+    let blocked_pawns = (our_pawns & same_color_squares).count_ones() as i32;
+
+    safe_moves.count_ones() <= 2 || blocked_pawns >= 3
 }
 
-/// Avalia controle do complexo de casas da mesma cor
+/// Avalia domínio do complexo de casas da mesma cor
 fn evaluate_color_complex_control(bishop_sq: u8, context: &MobilityContext) -> i32 {
     let is_light = is_light_square(bishop_sq);
     let mut control_score = 0;
 
-    // Conta casas da mesma cor controladas
     let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
     let same_color_squares = get_squares_of_color(is_light);
     let controlled_same_color = (attacks & same_color_squares).count_ones() as i32;
 
     control_score += controlled_same_color;
 
-    // Bônus se controla casas centrais da mesma cor
     let central_same_color = same_color_squares & 0x0000001818000000u64;
     let controls_central_same_color = (attacks & central_same_color).count_ones() as i32;
     control_score += controls_central_same_color * 2;
 
-    // Penalidade se peões próprios bloqueiam casas da mesma cor
     let our_pawns = context.board.pawns & context.our_pieces;
     let blocked_same_color = (our_pawns & same_color_squares).count_ones() as i32;
     control_score -= blocked_same_color;
@@ -336,22 +290,19 @@ fn get_squares_of_color(is_light: bool) -> Bitboard {
     }
 }
 
-/// Detecta potencial de pregaduras
+/// Detecta potenciais pregaduras
 fn detect_pin_potential(bishop_sq: u8, context: &MobilityContext) -> i32 {
     let mut pin_score = 0;
     let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
 
-    // Verifica se há peças inimigas valiosas em linhas de ataque
     let valuable_enemies = (context.board.queens | context.board.rooks | context.board.kings) & context.enemy_pieces;
     let attacks_valuable = attacks & valuable_enemies;
 
     if attacks_valuable != 0 {
-        // Para cada peça valiosa atacada, verifica se pode criar pregadura
         let valuable_squares = get_set_bits(attacks_valuable);
 
         for &target_sq in &valuable_squares {
             if can_create_pin(bishop_sq, target_sq, context) {
-                // Valor da pregadura baseado na peça alvo
                 let target_bb = 1u64 << target_sq;
                 if (context.board.kings & target_bb) != 0 {
                     pin_score += 15; // Pregadura no rei
@@ -369,22 +320,18 @@ fn detect_pin_potential(bishop_sq: u8, context: &MobilityContext) -> i32 {
 
 /// Verifica se pode criar pregadura entre bispo e peça alvo
 fn can_create_pin(bishop_sq: u8, target_sq: u8, context: &MobilityContext) -> bool {
-    // Calcula direção do bispo para o alvo
     let dir = get_diagonal_direction(bishop_sq, target_sq);
-    if dir == 0 { return false; } // Não está na diagonal
+    if dir == 0 { return false; }
 
-    // Verifica se há peça valiosa além do alvo na mesma linha
     let mut current_sq = target_sq as i32 + dir;
 
     while current_sq >= 0 && current_sq <= 63 && is_valid_diagonal_step(target_sq as i32, current_sq, dir) {
         let current_bb = 1u64 << current_sq;
 
         if (context.enemy_pieces & current_bb) != 0 {
-            // Há uma peça inimiga - verifica se é valiosa
             let is_valuable = (context.board.queens | context.board.rooks | context.board.kings) & current_bb;
             return is_valuable != 0;
         } else if (context.our_pieces & current_bb) != 0 {
-            // Há uma peça nossa - pregadura não é possível
             return false;
         }
 
@@ -400,7 +347,7 @@ fn get_diagonal_direction(from: u8, to: u8) -> i32 {
     let rank_diff = (to / 8) as i32 - (from / 8) as i32;
 
     if file_diff.abs() != rank_diff.abs() {
-        return 0; // Não é diagonal
+        return 0;
     }
 
     match (file_diff.signum(), rank_diff.signum()) {
@@ -423,17 +370,14 @@ fn evaluate_long_range_influence(bishop_sq: u8, context: &MobilityContext) -> i3
     let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
     let mut influence_score = 0;
 
-    // Influência no território inimigo
     let enemy_territory = get_enemy_territory(context.enemy_color);
     let influence_on_enemy_territory = (attacks & enemy_territory).count_ones() as i32;
     influence_score += influence_on_enemy_territory;
 
-    // Controle de casas de passagem importantes
     let passage_squares = get_important_passage_squares();
     let controls_passages = (attacks & passage_squares).count_ones() as i32;
     influence_score += controls_passages * 2;
 
-    // Pressão sobre estrutura de peões inimiga
     let enemy_pawns = context.board.pawns & context.enemy_pieces;
     let pressure_on_pawns = (attacks & enemy_pawns).count_ones() as i32;
     influence_score += pressure_on_pawns;
@@ -452,15 +396,19 @@ fn get_enemy_territory(enemy_color: Color) -> Bitboard {
 
 /// Obtém casas de passagem importantes
 fn get_important_passage_squares() -> Bitboard {
-    // Casas centrais e de conexão
     0x00003C3C3C3C0000u64
+}
+
+/// Novo: Verifica se posição é fechada
+fn is_closed_position(context: &MobilityContext) -> bool {
+    let center_pawns = context.board.pawns & 0x0000001818000000u64; // d4, e4, d5, e5
+    center_pawns.count_ones() >= 3 // Posição fechada se >=3 peões centrais
 }
 
 /// Avalia bispo baseado em sua mobilidade atual vs potencial
 pub fn evaluate_bishop_development(bishop_sq: u8, context: &MobilityContext) -> i32 {
     let mut development_score = 0;
 
-    // Penalidade se ainda está na casa inicial no meio-jogo
     if context.phase != GamePhase::Opening {
         let initial_squares = if context.color == Color::White {
             [2, 5] // c1, f1
@@ -469,11 +417,10 @@ pub fn evaluate_bishop_development(bishop_sq: u8, context: &MobilityContext) -> 
         };
 
         if initial_squares.contains(&bishop_sq) {
-            development_score -= 10; // Penalidade por desenvolvimento tardio
+            development_score -= 10;
         }
     }
 
-    // Bônus por ativação precoce se posição permite
     if context.phase == GamePhase::Opening {
         let central_influence = evaluate_central_influence(bishop_sq, context);
         development_score += central_influence;

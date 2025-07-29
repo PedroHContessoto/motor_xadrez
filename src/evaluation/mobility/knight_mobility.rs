@@ -427,7 +427,7 @@ fn evaluate_pawn_blockade(knight_sq: u8, context: &MobilityContext) -> i32 {
 
     for &pawn_sq in &pawn_squares {
         // Usa a função integrada de pawn_structure.rs para verificar peão passado
-        if is_passed_pawn_integrated(pawn_sq as usize, context.enemy_color, our_pawns, enemy_pawns) {
+        if super::super::utils::is_passed_pawn(pawn_sq, context.enemy_color, our_pawns, enemy_pawns) {
             // Verifica se cavalo pode bloquear efetivamente o caminho
             let blocking_effectiveness = calculate_knight_blocking_power(knight_sq, pawn_sq as u8, context);
 
@@ -461,38 +461,6 @@ fn evaluate_pawn_blockade(knight_sq: u8, context: &MobilityContext) -> i32 {
     blockade_value
 }
 
-/// Versão integrada que usa a lógica de pawn_structure.rs
-fn is_passed_pawn_integrated(pawn_sq: usize, pawn_color: Color, our_pawns: Bitboard, enemy_pawns: Bitboard) -> bool {
-    // Usa a mesma lógica da função is_passed_pawn do arquivo pawn_structure.rs
-    let file = pawn_sq % 8;
-    let rank = pawn_sq / 8;
-
-    // Verifica arquivos adjacentes e o próprio arquivo
-    for check_file in (file.saturating_sub(1))..=(file.saturating_add(1)).min(7) {
-        let file_mask = 0x0101010101010101u64 << check_file;
-        let file_pawns = our_pawns & file_mask; // Nossos peões que podem bloquear
-
-        if file_pawns != 0 {
-            // Verifica se há peão nosso que pode bloquear
-            let our_pawn_squares = get_set_bits_simple(file_pawns);
-            for our_sq in our_pawn_squares {
-                let our_rank = our_sq / 8;
-
-                let blocks_advancement = if pawn_color == Color::White {
-                    our_rank > (rank as u8) // Nosso peão está à frente do peão inimigo
-                } else {
-                    our_rank < (rank as u8) // Nosso peão está à frente do peão inimigo
-                };
-
-                if blocks_advancement {
-                    return false;
-                }
-            }
-        }
-    }
-
-    true
-}
 
 /// Calcula o poder de bloqueio do cavalo para um peão específico
 fn calculate_knight_blocking_power(knight_sq: u8, pawn_sq: u8, context: &MobilityContext) -> i32 {
@@ -589,41 +557,7 @@ fn can_knight_reach_in_two_moves(knight_sq: u8, target_sq: u8, context: &Mobilit
     can_reach
 }
 
-/// Verifica se peão inimigo é passado (função legacy mantida para compatibilidade)
-fn is_passed_pawn_enemy(pawn_sq: u8, pawn_color: Color, our_pawns: Bitboard, enemy_pawns: Bitboard) -> bool {
-    is_passed_pawn_integrated(pawn_sq as usize, pawn_color, our_pawns, enemy_pawns)
-}
 
-/// Legacy: Verifica se peão inimigo é passado (versão simplificada)
-fn is_passed_pawn_enemy_old(pawn_sq: u8, pawn_color: Color, our_pawns: Bitboard, enemy_pawns: Bitboard) -> bool {
-    let file = pawn_sq % 8;
-    let rank = pawn_sq / 8;
-
-    // Verifica se nossos peões podem bloquear
-    for check_file in (file.saturating_sub(1))..=(file.saturating_add(1)).min(7) {
-        let file_mask = get_file_mask(check_file);
-        let our_file_pawns = our_pawns & file_mask;
-
-        if our_file_pawns != 0 {
-            let our_pawn_squares = get_set_bits(our_file_pawns);
-            for our_sq in our_pawn_squares {
-                let our_rank = our_sq / 8;
-
-                let can_block = if pawn_color == Color::White {
-                    our_rank > rank // Nosso peão está à frente
-                } else {
-                    our_rank < rank
-                };
-
-                if can_block {
-                    return false;
-                }
-            }
-        }
-    }
-
-    true
-}
 
 /// Avalia oportunidades táticas diversas
 fn evaluate_tactical_opportunities(knight_sq: u8, context: &MobilityContext) -> i32 {

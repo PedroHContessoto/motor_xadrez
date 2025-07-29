@@ -2,6 +2,7 @@
 use crate::types::{Color, Bitboard};
 use super::{MobilityContext, MobilityResult, GamePhase, utils::*};
 use crate::evaluation::utils as eval_utils;
+use super::super::pawn_structure; // Adicionado para integração com pawn_structure
 
 /// Avaliação avançada de mobilidade e segurança do rei
 pub fn evaluate_king_mobility_advanced(context: &MobilityContext) -> i32 {
@@ -43,12 +44,16 @@ fn evaluate_king_safety(king_sq: u8, context: &MobilityContext) -> i32 {
     let safe_squares = king_attacks & !context.enemy_attacked_squares & !context.our_pieces;
     let mobility = safe_squares.count_ones() as i32;
 
-    // Muito pouca mobilidade é ruim (pode ser mate)
+    // Ajuste: Penalidade maior para mobilidade muito baixa
     if mobility <= 1 {
-        safety_score -= 15;
+        safety_score -= 25; // Aumentado de -15 para -25
     } else if mobility <= 3 {
         safety_score += 5; // Mobilidade controlada é ok
     }
+
+    // Novo: Penalidade por tempestade de peões inimiga
+    let pawn_storm_penalty = evaluate_pawn_storm_threat(king_sq, context);
+    safety_score += pawn_storm_penalty;
 
     safety_score
 }
@@ -82,10 +87,37 @@ fn evaluate_king_activity(king_sq: u8, context: &MobilityContext) -> i32 {
         let enemy_king_sq = enemy_king.trailing_zeros() as u8;
         if has_opposition(king_sq, enemy_king_sq) {
             activity_score += 15;
+        } else if has_virtual_opposition(king_sq, enemy_king_sq, context) { // Novo
+            activity_score += 8;
         }
     }
 
     activity_score
+}
+
+/// Novo: Avalia ameaça de tempestade de peões
+fn evaluate_pawn_storm_threat(king_sq: u8, context: &MobilityContext) -> i32 {
+    let enemy_pawns = context.board.pawns & context.enemy_pieces;
+    let king_file = king_sq % 8;
+    let mut penalty = 0;
+
+    let pawn_squares = pawn_structure::get_set_bits_simple(enemy_pawns);
+    for &pawn_sq in &pawn_squares {
+        let pawn_file = pawn_sq % 8;
+        let pawn_rank = pawn_sq / 8;
+        let file_distance = (pawn_file as i8 - king_file as i8).abs();
+
+        if file_distance <= 2 {
+            let advancement = if context.enemy_color == Color::White {
+                pawn_rank
+            } else {
+                7 - pawn_rank
+            };
+            penalty -= advancement as i32 * 4; // Penalidade por peão avançado
+        }
+    }
+
+    penalty
 }
 
 /// Avalia escudo de peões
@@ -101,7 +133,7 @@ fn evaluate_pawn_shield(king_sq: u8, context: &MobilityContext) -> i32 {
         if (our_pawns & shield_bb) != 0 {
             shield_score += 8; // Bônus por peão protetor
         } else {
-            shield_score -= 5; // Penalidade por buraco no escudo
+            shield_score -= 7; // Aumentado de -5 para -7
         }
     }
 
@@ -138,8 +170,8 @@ fn evaluate_threat_distance(king_sq: u8, context: &MobilityContext) -> i32 {
         let queen_squares = get_set_bits(enemy_queens);
         for &queen_sq in &queen_squares {
             let distance = eval_utils::calculate_square_distance(king_sq, queen_sq);
-            if distance <= 4 {
-                threat_score -= (5 - distance) * 4;
+            if distance <= 3 { // Ajustado de <=4 para <=3
+                threat_score -= (5 - distance) * 8; // Aumentado de *4 para *8
             }
         }
     }
@@ -150,8 +182,14 @@ fn evaluate_threat_distance(king_sq: u8, context: &MobilityContext) -> i32 {
     for &rook_sq in &rook_squares {
         let distance = eval_utils::calculate_square_distance(king_sq, rook_sq);
         if distance <= 3 {
-            threat_score -= (4 - distance) * 2;
+            threat_score -= (4 - distance) * 3; // Aumentado de *2 para *3
         }
+    }
+
+    // Novo: Penalidade por arquivos abertos compartilhados
+    let king_file = king_sq % 8;
+    if is_open_file(king_file, context) {
+        threat_score -= 10; // Novo
     }
 
     threat_score
@@ -171,7 +209,7 @@ fn count_pieces_in_radius(center_sq: u8, pieces: Bitboard, radius: i32) -> i32 {
     count
 }
 
-/// Verifica oposição entre reis
+/// Verifica oposição entre reis (melhorado)
 fn has_opposition(our_king: u8, enemy_king: u8) -> bool {
     let file_diff = ((our_king % 8) as i32 - (enemy_king % 8) as i32).abs();
     let rank_diff = ((our_king / 8) as i32 - (enemy_king / 8) as i32).abs();
@@ -182,3 +220,17 @@ fn has_opposition(our_king: u8, enemy_king: u8) -> bool {
         (file_diff == 2 && rank_diff == 2)
 }
 
+/// Novo: Verifica oposição virtual (distância maior)
+fn has_virtual_opposition(our_king: u8, enemy_king: u8, context: &MobilityContext) -> bool {
+    let file_diff = ((our_king % 8) as i32 - (enemy_king % 8) as i32).abs();
+    let rank_diff = ((our_king / 8) as i32 - (enemy_king / 8) as i32).abs();
+
+    // Oposição a distância 3-4 com peões bloqueados
+    if (file_diff == 0 && rank_diff >= 3 && rank_diff <= 4) ||
+        (rank_diff == 0 && file_diff >= 3 && file_diff <= 4) {
+        let file_mask = get_file_mask(our_king % 8);
+        let pawns_in_file = context.board.pawns & file_mask;
+        return pawns_in_file != 0; // Só se houver peões bloqueando
+    }
+    false
+}

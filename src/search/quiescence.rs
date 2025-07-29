@@ -3,7 +3,7 @@ use crate::{board::Board, evaluation, transposition::TranspositionTable, types::
 use super::{SearchContext, order_moves, see::see};
 
 const MATE_VALUE: i32 = 99999;
-const SEE_THRESHOLD: i32 = -50; // Era -100, agora -50 (menos permissivo)
+const SEE_THRESHOLD: i32 = -20; // Mais conservador para evitar sacrifícios ruins
 
 /// Quiescence Search - busca táticas até posição "quieta" 
 pub fn quiescence_search(
@@ -46,9 +46,9 @@ fn quiescence_search_with_ply(
         alpha = stand_pat;
     }
 
-    // Delta pruning - reduzido para considerar capturas de rainha (era 900, agora 700)
+    // Delta pruning - mais conservador para não perder táticas
     // Exceção: não faz delta pruning em xeque
-    if !in_check && stand_pat + 700 < alpha {
+    if !in_check && stand_pat + 950 < alpha {
         return alpha;
     }
 

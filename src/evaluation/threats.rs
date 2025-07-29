@@ -552,7 +552,7 @@ fn piece_can_attack_square(board: &Board, piece_square: u8, target_square: u8, c
     // Determina o tipo baseado no bitboard
     if (piece_type_bb & board.pawns) != 0 {
         // Peão
-        pawn_attacks_square(piece_square, target_square, color)
+        super::utils::can_pawn_attack_square(piece_square, target_square, color)
     } else if (piece_type_bb & board.knights) != 0 {
         // Cavalo
         let attacks = crate::moves::knight::get_knight_attacks_lookup(piece_square);
@@ -579,20 +579,6 @@ fn piece_can_attack_square(board: &Board, piece_square: u8, target_square: u8, c
     }
 }
 
-/// Verifica se peão pode atacar casa específica
-fn pawn_attacks_square(pawn_square: u8, target_square: u8, pawn_color: Color) -> bool {
-    if pawn_color == Color::White {
-        // Brancas: ataques diagonais para cima
-        let left_attack = if pawn_square % 8 > 0 && pawn_square + 7 < 64 { Some(pawn_square + 7) } else { None };
-        let right_attack = if pawn_square % 8 < 7 && pawn_square + 9 < 64 { Some(pawn_square + 9) } else { None };
-        [left_attack, right_attack].iter().any(|&attack| attack == Some(target_square))
-    } else {
-        // Pretas: ataques diagonais para baixo
-        let left_attack = if pawn_square % 8 > 0 && pawn_square >= 9 { Some(pawn_square - 9) } else { None };
-        let right_attack = if pawn_square % 8 < 7 && pawn_square >= 7 { Some(pawn_square - 7) } else { None };
-        [left_attack, right_attack].iter().any(|&attack| attack == Some(target_square))
-    }
-}
 
 // Função evaluate_pins_and_discoveries removida - substituída por funções específicas na função principal
 
@@ -908,7 +894,7 @@ fn find_defended_squares(board: &Board, defender_sq: u8, defender_color: Color) 
 
     // Gera ataques da peça defensora
     let attacks = match piece_kind.unwrap() {
-        PieceKind::Pawn => get_pawn_attacks(defender_sq, defender_color),
+        PieceKind::Pawn => super::utils::compute_pawn_attacks(1u64 << defender_sq, defender_color),
         PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(defender_sq),
         PieceKind::Bishop => crate::moves::sliding::get_bishop_attacks(defender_sq, board.white_pieces | board.black_pieces),
         PieceKind::Rook => crate::moves::sliding::get_rook_attacks(defender_sq, board.white_pieces | board.black_pieces),
@@ -932,31 +918,6 @@ fn find_defended_squares(board: &Board, defender_sq: u8, defender_color: Color) 
     defended
 }
 
-/// Obtém ataques de peão para defender
-fn get_pawn_attacks(pawn_sq: u8, color: Color) -> crate::types::Bitboard {
-    let rank = pawn_sq / 8;
-    let file = pawn_sq % 8;
-    let mut attacks = 0u64;
-
-    match color {
-        Color::White => {
-            // Ataques diagonais para cima
-            if rank < 7 {
-                if file > 0 { attacks |= 1u64 << (pawn_sq + 7); }
-                if file < 7 { attacks |= 1u64 << (pawn_sq + 9); }
-            }
-        },
-        Color::Black => {
-            // Ataques diagonais para baixo
-            if rank > 0 {
-                if file > 0 { attacks |= 1u64 << (pawn_sq - 9); }
-                if file < 7 { attacks |= 1u64 << (pawn_sq - 7); }
-            }
-        }
-    }
-
-    attacks
-}
 
 /// Conta quantas peças defendidas por um defensor sobrecarregado nós atacamos
 fn count_our_attacks_on_defended_pieces(board: &Board, color: Color, defended_by: &std::collections::HashMap<u8, Vec<u8>>, overloaded_defender: u8) -> usize {
@@ -1143,7 +1104,7 @@ fn get_piece_attacks(board: &Board, piece_sq: u8) -> crate::types::Bitboard {
     match piece_kind.unwrap() {
         PieceKind::Pawn => {
             let color = if (board.white_pieces & (1u64 << piece_sq)) != 0 { Color::White } else { Color::Black };
-            get_pawn_attacks(piece_sq, color)
+            super::utils::compute_pawn_attacks(1u64 << piece_sq, color)
         },
         PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(piece_sq),
         PieceKind::Bishop => crate::moves::sliding::get_bishop_attacks(piece_sq, all_pieces),

@@ -183,7 +183,7 @@ fn evaluate_passed_pawn_support(context: &MobilityContext) -> i32 {
 
     for &pawn_sq in &pawn_squares {
         // Verifica se é peão passado (simplificado)
-        if is_likely_passed_pawn(pawn_sq, context.color, our_pawns, enemy_pawns) {
+        if super::super::utils::is_passed_pawn(pawn_sq, context.color, our_pawns, enemy_pawns) {
             let promotion_path = get_promotion_path(pawn_sq, context.color);
 
             // Conta quantas de nossas peças apoiam o caminho
@@ -325,7 +325,7 @@ fn count_piece_types_attacking_area(area: Bitboard, context: &MobilityContext) -
         let pieces = get_set_bits(our_pieces);
         let attacks_area = pieces.iter().any(|&piece_sq| {
             let attacks = match _piece_name {
-                "pawn" => super::compute_pawn_attacks(1u64 << piece_sq, context.color),
+                "pawn" => super::super::utils::compute_pawn_attacks(1u64 << piece_sq, context.color),
                 "knight" => crate::moves::knight::get_knight_attacks_lookup(piece_sq),
                 "bishop" => crate::moves::sliding::get_bishop_attacks(piece_sq, context.all_pieces),
                 "rook" => crate::moves::sliding::get_rook_attacks(piece_sq, context.all_pieces),
@@ -344,36 +344,6 @@ fn count_piece_types_attacking_area(area: Bitboard, context: &MobilityContext) -
     attacking_types
 }
 
-/// Verifica se é provável que seja peão passado
-fn is_likely_passed_pawn(pawn_sq: u8, color: Color, our_pawns: Bitboard, enemy_pawns: Bitboard) -> bool {
-    let file = pawn_sq % 8;
-    let rank = pawn_sq / 8;
-
-    // Verifica arquivos adjacentes para peões inimigos que podem bloquear
-    for check_file in (file.saturating_sub(1))..=(file.saturating_add(1)).min(7) {
-        let file_mask = get_file_mask(check_file);
-        let file_enemy_pawns = enemy_pawns & file_mask;
-
-        if file_enemy_pawns != 0 {
-            let enemy_squares = get_set_bits(file_enemy_pawns);
-            for enemy_sq in enemy_squares {
-                let enemy_rank = enemy_sq / 8;
-
-                let blocks_advancement = if color == Color::White {
-                    enemy_rank > rank
-                } else {
-                    enemy_rank < rank
-                };
-
-                if blocks_advancement {
-                    return false;
-                }
-            }
-        }
-    }
-
-    true
-}
 
 /// Obtém território inimigo
 fn get_enemy_territory(enemy_color: Color) -> Bitboard {
