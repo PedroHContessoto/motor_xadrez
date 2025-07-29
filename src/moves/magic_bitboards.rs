@@ -458,3 +458,51 @@ mod benchmarks {
         println!("Avg per call: {:?}", magic_time / (iterations * 64 * 2));
     }
 }
+
+// ============================================================================
+// FUNÇÕES DE GERAÇÃO DE MOVIMENTOS USANDO MAGIC BITBOARDS
+// ============================================================================
+
+/// Função genérica otimizada para gerar lances de Torres e Bispos usando magic bitboards
+pub fn generate_sliding_moves(board: &crate::board::Board, piece_kind: crate::types::PieceKind) -> Vec<crate::types::Move> {
+    let mut moves = Vec::with_capacity(32);
+    let our_pieces = if board.to_move == crate::types::Color::White { board.white_pieces } else { board.black_pieces };
+    let all_pieces = board.white_pieces | board.black_pieces;
+
+    let piece_bb = match piece_kind {
+        crate::types::PieceKind::Bishop => board.bishops,
+        crate::types::PieceKind::Rook => board.rooks,
+        _ => 0 // Não deve acontecer para esta função
+    };
+
+    let mut our_sliding_pieces = piece_bb & our_pieces;
+
+    while our_sliding_pieces != 0 {
+        let from_sq = our_sliding_pieces.trailing_zeros() as u8;
+        
+        // Usa magic bitboards para geração de ataques ultra-rápida
+        let attacks = if piece_kind == crate::types::PieceKind::Bishop {
+            get_bishop_attacks_magic(from_sq, all_pieces)
+        } else {
+            get_rook_attacks_magic(from_sq, all_pieces)
+        };
+        
+        // Filtra movimentos válidos (exclui nossas próprias peças)
+        let mut valid_moves = attacks & !our_pieces;
+        
+        while valid_moves != 0 {
+            let to_sq = valid_moves.trailing_zeros() as u8;
+            moves.push(crate::types::Move { 
+                from: from_sq, 
+                to: to_sq, 
+                promotion: None, 
+                is_castling: false, 
+                is_en_passant: false 
+            });
+            valid_moves &= valid_moves - 1;
+        }
+        
+        our_sliding_pieces &= our_sliding_pieces - 1;
+    }
+    moves
+}

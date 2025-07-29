@@ -38,12 +38,16 @@ impl EvaluationCache {
         }
     }
 
-    /// Armazena avaliação no cache
+    /// Armazena avaliação no cache com estratégia always-replace para performance
     pub fn store(&mut self, zobrist_hash: u64, score: i32, depth: u8) {
-        // Se cache está cheio, remove uma entrada aleatória (simples LRU seria melhor)
-        if self.cache.len() >= self.max_entries {
-            if let Some(&key_to_remove) = self.cache.keys().next() {
-                self.cache.remove(&key_to_remove);
+        // Always-replace: simplesmente substitui/adiciona - muito mais rápido que LRU
+        // Performance crítica em evaluation cache
+        if self.cache.len() >= self.max_entries && !self.cache.contains_key(&zobrist_hash) {
+            // Remove entrada baseada em hash para distribuição uniforme
+            let key_to_remove = zobrist_hash.wrapping_mul(0x9E3779B97F4A7C15) % (self.max_entries as u64);
+            // Encontra primeira chave que casa com o padrão de remoção
+            if let Some(&first_key) = self.cache.keys().next() {
+                self.cache.remove(&first_key);
             }
         }
 

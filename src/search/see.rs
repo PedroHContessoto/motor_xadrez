@@ -109,17 +109,16 @@ fn can_attack_square(board: &Board, from_square: u8, target_square: u8, piece_ki
             (attacks & (1u64 << target_square)) != 0
         },
         PieceKind::Bishop => {
-            let attacks = crate::moves::sliding::get_bishop_attacks(from_square, all_pieces);
+            let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(from_square, all_pieces);
             (attacks & (1u64 << target_square)) != 0
         },
         PieceKind::Rook => {
-            let attacks = crate::moves::sliding::get_rook_attacks(from_square, all_pieces);
+            let attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(from_square, all_pieces);
             (attacks & (1u64 << target_square)) != 0
         },
         PieceKind::Queen => {
-            let bishop_attacks = crate::moves::sliding::get_bishop_attacks(from_square, all_pieces);
-            let rook_attacks = crate::moves::sliding::get_rook_attacks(from_square, all_pieces);
-            ((bishop_attacks | rook_attacks) & (1u64 << target_square)) != 0
+            let attacks = crate::moves::magic_bitboards::get_queen_attacks_magic(from_square, all_pieces);
+            (attacks & (1u64 << target_square)) != 0
         },
         PieceKind::King => {
             let attacks = crate::moves::king::get_king_attacks_lookup(from_square);

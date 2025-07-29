@@ -154,7 +154,7 @@ pub fn gives_check_fast(board: &Board, mv: Move) -> bool {
             temp_occ &= !(1u64 << mv.from); // Remove peça da origem
             temp_occ |= 1u64 << mv.to;      // Adiciona na destino
 
-            let attacks = crate::moves::sliding::get_bishop_attacks(mv.to, temp_occ);
+            let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(mv.to, temp_occ);
             (attacks & (1u64 << enemy_king_square)) != 0
         },
         crate::types::PieceKind::Rook => {
@@ -163,7 +163,7 @@ pub fn gives_check_fast(board: &Board, mv: Move) -> bool {
             temp_occ &= !(1u64 << mv.from);
             temp_occ |= 1u64 << mv.to;
 
-            let attacks = crate::moves::sliding::get_rook_attacks(mv.to, temp_occ);
+            let attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(mv.to, temp_occ);
             (attacks & (1u64 << enemy_king_square)) != 0
         },
         crate::types::PieceKind::Pawn => {

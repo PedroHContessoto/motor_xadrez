@@ -140,7 +140,7 @@ pub fn analyze_bishop_strategy(context: &MobilityContext) -> BishopAnalysis {
 
 /// Calcula mobilidade básica e segura do bispo
 fn calculate_bishop_mobility(bishop_sq: u8, context: &MobilityContext) -> (i32, i32) {
-    let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
+    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, context.all_pieces);
 
     // Casas legais (não ocupadas por peças próprias)
     let legal_squares = attacks & !context.our_pieces;
@@ -190,7 +190,7 @@ fn is_light_square(square: u8) -> bool {
 /// Avalia controle diagonal
 fn evaluate_diagonal_control(bishop_sq: u8, context: &MobilityContext) -> i32 {
     let mut control_score = 0;
-    let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
+    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, context.all_pieces);
 
     // Novo: Usar máscaras pré-computadas para diagonais principais
     const MAIN_DIAGONAL: Bitboard = 0x8040201008040201u64;
@@ -246,7 +246,7 @@ fn is_fianchetto_bishop(bishop_sq: u8, color: Color) -> bool {
 
 /// Verifica se bispo está preso
 fn is_trapped_bishop(bishop_sq: u8, context: &MobilityContext) -> bool {
-    let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
+    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, context.all_pieces);
     let legal_moves = attacks & !context.our_pieces;
     let safe_moves = legal_moves & !context.enemy_attacked_squares;
 
@@ -264,7 +264,7 @@ fn evaluate_color_complex_control(bishop_sq: u8, context: &MobilityContext) -> i
     let is_light = is_light_square(bishop_sq);
     let mut control_score = 0;
 
-    let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
+    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, context.all_pieces);
     let same_color_squares = get_squares_of_color(is_light);
     let controlled_same_color = (attacks & same_color_squares).count_ones() as i32;
 
@@ -293,7 +293,7 @@ fn get_squares_of_color(is_light: bool) -> Bitboard {
 /// Detecta potenciais pregaduras
 fn detect_pin_potential(bishop_sq: u8, context: &MobilityContext) -> i32 {
     let mut pin_score = 0;
-    let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
+    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, context.all_pieces);
 
     let valuable_enemies = (context.board.queens | context.board.rooks | context.board.kings) & context.enemy_pieces;
     let attacks_valuable = attacks & valuable_enemies;
@@ -367,7 +367,7 @@ fn is_valid_diagonal_step(from: i32, to: i32, dir: i32) -> bool {
 
 /// Avalia influência de longo alcance
 fn evaluate_long_range_influence(bishop_sq: u8, context: &MobilityContext) -> i32 {
-    let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
+    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, context.all_pieces);
     let mut influence_score = 0;
 
     let enemy_territory = get_enemy_territory(context.enemy_color);
@@ -431,7 +431,7 @@ pub fn evaluate_bishop_development(bishop_sq: u8, context: &MobilityContext) -> 
 
 /// Avalia influência central do bispo
 fn evaluate_central_influence(bishop_sq: u8, context: &MobilityContext) -> i32 {
-    let attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, context.all_pieces);
+    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, context.all_pieces);
     let center = 0x0000001818000000u64; // d4, e4, d5, e5
     let extended_center = 0x00003C3C3C3C0000u64; // c3-f3 até c6-f6
 

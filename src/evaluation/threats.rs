@@ -234,11 +234,9 @@ fn evaluate_queen_forks(board: &Board, color: Color) -> i32 {
         let queen_sq = queen_bb.trailing_zeros() as u8;
         queen_bb &= queen_bb - 1;
 
-        // Obtém ataques da rainha (bispo + torre)
+        // Obtém ataques da rainha usando magic bitboards
         let all_pieces = board.white_pieces | board.black_pieces;
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(queen_sq, all_pieces);
-        let rook_attacks = crate::moves::sliding::get_rook_attacks(queen_sq, all_pieces);
-        let queen_attacks = bishop_attacks | rook_attacks;
+        let queen_attacks = crate::moves::magic_bitboards::get_queen_attacks_magic(queen_sq, all_pieces);
 
         // Conta peças inimigas valiosas atacadas
         let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
@@ -312,9 +310,9 @@ fn evaluate_bishop_forks(board: &Board, color: Color) -> i32 {
         let bishop_sq = bishop_bb.trailing_zeros() as u8;
         bishop_bb &= bishop_bb - 1;
 
-        // Obtém ataques do bispo
+        // Obtém ataques do bispo usando magic bitboards
         let all_pieces = board.white_pieces | board.black_pieces;
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, all_pieces);
+        let bishop_attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(bishop_sq, all_pieces);
 
         // Conta peças inimigas valiosas atacadas
         let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
@@ -558,18 +556,17 @@ fn piece_can_attack_square(board: &Board, piece_square: u8, target_square: u8, c
         let attacks = crate::moves::knight::get_knight_attacks_lookup(piece_square);
         (attacks & (1u64 << target_square)) != 0
     } else if (piece_type_bb & board.bishops) != 0 {
-        // Bispo
-        let attacks = crate::moves::sliding::get_bishop_attacks(piece_square, all_pieces);
+        // Bispo - usando magic bitboards
+        let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_square, all_pieces);
         (attacks & (1u64 << target_square)) != 0
     } else if (piece_type_bb & board.rooks) != 0 {
-        // Torre
-        let attacks = crate::moves::sliding::get_rook_attacks(piece_square, all_pieces);
+        // Torre - usando magic bitboards
+        let attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(piece_square, all_pieces);
         (attacks & (1u64 << target_square)) != 0
     } else if (piece_type_bb & board.queens) != 0 {
-        // Rainha (bispo + torre)
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(piece_square, all_pieces);
-        let rook_attacks = crate::moves::sliding::get_rook_attacks(piece_square, all_pieces);
-        ((bishop_attacks | rook_attacks) & (1u64 << target_square)) != 0
+        // Rainha - usando magic bitboards
+        let attacks = crate::moves::magic_bitboards::get_queen_attacks_magic(piece_square, all_pieces);
+        (attacks & (1u64 << target_square)) != 0
     } else if (piece_type_bb & board.kings) != 0 {
         // Rei
         let attacks = crate::moves::king::get_king_attacks_lookup(piece_square);
@@ -896,13 +893,9 @@ fn find_defended_squares(board: &Board, defender_sq: u8, defender_color: Color) 
     let attacks = match piece_kind.unwrap() {
         PieceKind::Pawn => super::utils::compute_pawn_attacks(1u64 << defender_sq, defender_color),
         PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(defender_sq),
-        PieceKind::Bishop => crate::moves::sliding::get_bishop_attacks(defender_sq, board.white_pieces | board.black_pieces),
-        PieceKind::Rook => crate::moves::sliding::get_rook_attacks(defender_sq, board.white_pieces | board.black_pieces),
-        PieceKind::Queen => {
-            let bishop_attacks = crate::moves::sliding::get_bishop_attacks(defender_sq, board.white_pieces | board.black_pieces);
-            let rook_attacks = crate::moves::sliding::get_rook_attacks(defender_sq, board.white_pieces | board.black_pieces);
-            bishop_attacks | rook_attacks
-        },
+        PieceKind::Bishop => crate::moves::magic_bitboards::get_bishop_attacks_magic(defender_sq, board.white_pieces | board.black_pieces),
+        PieceKind::Rook => crate::moves::magic_bitboards::get_rook_attacks_magic(defender_sq, board.white_pieces | board.black_pieces),
+        PieceKind::Queen => crate::moves::magic_bitboards::get_queen_attacks_magic(defender_sq, board.white_pieces | board.black_pieces),
         PieceKind::King => crate::moves::king::get_king_attacks_lookup(defender_sq),
     };
 
@@ -1107,13 +1100,9 @@ fn get_piece_attacks(board: &Board, piece_sq: u8) -> crate::types::Bitboard {
             super::utils::compute_pawn_attacks(1u64 << piece_sq, color)
         },
         PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(piece_sq),
-        PieceKind::Bishop => crate::moves::sliding::get_bishop_attacks(piece_sq, all_pieces),
-        PieceKind::Rook => crate::moves::sliding::get_rook_attacks(piece_sq, all_pieces),
-        PieceKind::Queen => {
-            let bishop_attacks = crate::moves::sliding::get_bishop_attacks(piece_sq, all_pieces);
-            let rook_attacks = crate::moves::sliding::get_rook_attacks(piece_sq, all_pieces);
-            bishop_attacks | rook_attacks
-        },
+        PieceKind::Bishop => crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_sq, all_pieces),
+        PieceKind::Rook => crate::moves::magic_bitboards::get_rook_attacks_magic(piece_sq, all_pieces),
+        PieceKind::Queen => crate::moves::magic_bitboards::get_queen_attacks_magic(piece_sq, all_pieces),
         PieceKind::King => crate::moves::king::get_king_attacks_lookup(piece_sq),
     }
 }

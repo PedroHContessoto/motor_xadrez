@@ -171,8 +171,8 @@ impl Board {
 
         moves.extend(moves::pawn::generate_pawn_moves(self));
         moves.extend(moves::knight::generate_knight_moves(self));
-        moves.extend(moves::sliding::generate_sliding_moves(self, PieceKind::Bishop));
-        moves.extend(moves::sliding::generate_sliding_moves(self, PieceKind::Rook));
+        moves.extend(moves::magic_bitboards::generate_sliding_moves(self, PieceKind::Bishop));
+        moves.extend(moves::magic_bitboards::generate_sliding_moves(self, PieceKind::Rook));
         moves.extend(moves::queen::generate_queen_moves(self));
         moves.extend(moves::king::generate_king_moves(self));
 

@@ -6,7 +6,7 @@ authors = ["Pedro Contessoto"]
 description = "High-performance chess engine written in Rust"
 
 [[bin]]
-name = "pelanca7"
+name = "pelanca8"
 path = "src/main.rs"
 
 

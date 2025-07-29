@@ -15,8 +15,8 @@ pub fn evaluate_rook_mobility_advanced(context: &MobilityContext) -> i32 {
         let file = rook_sq % 8;
         let rank = rook_sq / 8;
 
-        // Mobilidade básica
-        let attacks = crate::moves::sliding::get_rook_attacks(rook_sq, context.all_pieces);
+        // Mobilidade básica - usando magic bitboards para performance máxima
+        let attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(rook_sq, context.all_pieces);
         let legal_squares = attacks & !context.our_pieces;
         let safe_squares = legal_squares & !context.enemy_attacked_squares;
 

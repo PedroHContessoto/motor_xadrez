@@ -87,8 +87,8 @@ fn evaluate_diagonal_batteries(diagonal_pieces: Bitboard, context: &MobilityCont
 
                 // Bônus se ataca território inimigo
                 let enemy_territory = get_enemy_territory(context.enemy_color);
-                let sq1_attacks = crate::moves::sliding::get_bishop_attacks(sq1, context.all_pieces);
-                let sq2_attacks = crate::moves::sliding::get_bishop_attacks(sq2, context.all_pieces);
+                let sq1_attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(sq1, context.all_pieces);
+                let sq2_attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(sq2, context.all_pieces);
 
                 if (sq1_attacks & enemy_territory) != 0 && (sq2_attacks & enemy_territory) != 0 {
                     diagonal_score += 5;
@@ -270,9 +270,7 @@ fn evaluate_king_attack_coordination(context: &MobilityContext) -> i32 {
         let queen_attacks = if (context.board.queens & context.our_pieces) != 0 {
             let queens = get_set_bits(context.board.queens & context.our_pieces);
             queens.iter().any(|&queen_sq| {
-                let queen_attacks =
-                    crate::moves::sliding::get_bishop_attacks(queen_sq, context.all_pieces) |
-                        crate::moves::sliding::get_rook_attacks(queen_sq, context.all_pieces);
+                let queen_attacks = crate::moves::magic_bitboards::get_queen_attacks_magic(queen_sq, context.all_pieces);
                 (queen_attacks & king_area) != 0
             })
         } else {
@@ -327,10 +325,9 @@ fn count_piece_types_attacking_area(area: Bitboard, context: &MobilityContext) -
             let attacks = match _piece_name {
                 "pawn" => super::super::utils::compute_pawn_attacks(1u64 << piece_sq, context.color),
                 "knight" => crate::moves::knight::get_knight_attacks_lookup(piece_sq),
-                "bishop" => crate::moves::sliding::get_bishop_attacks(piece_sq, context.all_pieces),
-                "rook" => crate::moves::sliding::get_rook_attacks(piece_sq, context.all_pieces),
-                "queen" => crate::moves::sliding::get_bishop_attacks(piece_sq, context.all_pieces) |
-                    crate::moves::sliding::get_rook_attacks(piece_sq, context.all_pieces),
+                "bishop" => crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_sq, context.all_pieces),
+                "rook" => crate::moves::magic_bitboards::get_rook_attacks_magic(piece_sq, context.all_pieces),
+                "queen" => crate::moves::magic_bitboards::get_queen_attacks_magic(piece_sq, context.all_pieces),
                 _ => 0,
             };
             (attacks & area) != 0

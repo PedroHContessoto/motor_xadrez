@@ -178,12 +178,12 @@ fn piece_attacks_square(board: &Board, piece_square: u8, target_square: u8, colo
     } else if (board.bishops & piece_bb) != 0 || (board.queens & piece_bb) != 0 {
         // Ataque de bispo ou rainha (diagonal)
         let all_pieces = board.white_pieces | board.black_pieces;
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(piece_square, all_pieces);
+        let bishop_attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_square, all_pieces);
         (bishop_attacks & (1u64 << target_square)) != 0
     } else if (board.rooks & piece_bb) != 0 || (board.queens & piece_bb) != 0 {
         // Ataque de torre ou rainha (horizontal/vertical)
         let all_pieces = board.white_pieces | board.black_pieces;
-        let rook_attacks = crate::moves::sliding::get_rook_attacks(piece_square, all_pieces);
+        let rook_attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(piece_square, all_pieces);
         (rook_attacks & (1u64 << target_square)) != 0
     } else if (board.kings & piece_bb) != 0 {
         // Ataque de rei
