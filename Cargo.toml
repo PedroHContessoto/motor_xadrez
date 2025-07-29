@@ -6,13 +6,14 @@ authors = ["Pedro Contessoto"]
 description = "High-performance chess engine written in Rust"
 
 [[bin]]
-name = "pelanca9"
+name = "pelanca10"
 path = "src/main.rs"
 
 
 [dependencies]
 rayon = "1.8"
 lazy_static = "1.4"
+log = "0.4.27"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

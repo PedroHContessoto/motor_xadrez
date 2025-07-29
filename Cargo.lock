@@ -254,6 +254,7 @@ version = "1.0.0"
 dependencies = [
  "criterion",
  "lazy_static",
+ "log",
  "rayon",
 ]
 

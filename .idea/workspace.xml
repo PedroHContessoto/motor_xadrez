@@ -13,7 +13,14 @@
   <component name="ChangeListManager">
     <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/search/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/cache.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/cache.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/endgame_patterns.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/endgame_patterns.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/game_phase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/game_phase.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/king_safety.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/king_safety.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/material.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/material.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mod.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,7 +38,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="pelanca8" />
+        <entry key="$PROJECT_DIR$" value="pelanca9" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -59,26 +66,26 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;pelanca9&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;D:/motor_xadrez&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
-    &quot;org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon&quot;: &quot;&quot;,
-    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.rust.reset.selective.auto.import": "true",
+    "git-widget-placeholder": "pelanca10",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "D:/motor_xadrez",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
+    "org.rust.first.attach.projects": "true",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RunManager" selected="Cargo.Run motor_xadrez">
     <configuration name="Run motor_xadrez" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="buildProfileId" value="dev" />
@@ -146,6 +153,7 @@
       <workItem from="1753740143849" duration="428000" />
       <workItem from="1753745115931" duration="2289000" />
       <workItem from="1753814414207" duration="1697000" />
+      <workItem from="1753827215548" duration="4150000" />
     </task>
     <task id="LOCAL-00001" summary="add treino">
       <option name="closed" value="true" />
