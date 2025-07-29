@@ -37,8 +37,10 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
         _ => 1.0    // Posição normal
     };
     let _effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
-    
 
+    // DEBUG: Log inicial detalhado
+    println!("DEBUG: Starting search - max_time_ms: {}, tactical_level: {}, multiplier: {:.2}",
+             max_time_ms, tactical_level, tactical_time_multiplier);
 
     for depth in 1..=max_depth { // CORREÇÃO: Remove limite artificial de depth 8
         let iteration_start = std::time::Instant::now();
@@ -47,14 +49,17 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
         // Update search context for logging
         context.current_depth = depth;
         context.nodes_searched = 0; // Reset for this depth
-        
+
+        // DEBUG: Log início da iteração
+        println!("DEBUG: Starting depth {}, total_elapsed: {}ms", depth, elapsed);
+
         // Time management com limits seguros
         let base_timeout = max_time_ms / 25;  // Mais generoso: 1/25 do tempo (era 1/30)
         let max_timeout = max_time_ms / 6;    // Mais generoso: 1/6 do tempo (era 1/8)
-        
+
         let adjusted_timeout = (base_timeout as f32 * tactical_time_multiplier) as u64;
         let final_timeout = adjusted_timeout.min(max_timeout);
-        
+
         // Depth limit aumentado para melhor jogo
         let max_safe_depth = match tactical_level {
             3 => 12,  // Posições táticas complexas
@@ -62,7 +67,25 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
             1 => 9,   // Posições simples
             _ => 8    // Posições normais
         };
-        
+
+        if depth > max_safe_depth {
+            println!("DEBUG: Depth limit reached at {}", depth);
+            break;
+        }
+
+        if depth > 8 && elapsed > final_timeout {
+            println!("DEBUG: Time limit reached at depth {}, elapsed: {}ms, limit: {}ms",
+                     depth, elapsed, final_timeout);
+            break;
+        }
+
+        // Hard timeout absoluto
+        let absolute_limit = (max_time_ms * 3) / 4;  // Menos conservador: 3/4 do tempo
+        if elapsed > absolute_limit {
+            println!("DEBUG: HARD TIMEOUT at {}ms (limit: {}ms)", elapsed, absolute_limit);
+            break;
+        }
+
         // Reset stop flag para cada profundidade
         context.should_stop = false;
 
@@ -73,7 +96,18 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
         } else {
             pvs_search(board, depth, -50000, 50000, tt, &mut context, start_time, max_time_ms, true)
         };
-        
+
+        // DEBUG: Log tempo da iteração
+        let iteration_time = iteration_start.elapsed().as_millis();
+        let total_elapsed = start_time.elapsed().as_millis();
+        println!("DEBUG: Depth {} completed in {}ms, total: {}ms, nodes: {}",
+                 depth, iteration_time, total_elapsed, context.nodes_searched);
+
+        // Se parou por timeout, usa o que temos
+        if context.should_stop {
+            println!("DEBUG: Search stopped by timeout flag at depth {}", depth);
+            break;
+        }
 
         if let Some(entry) = tt.probe(board.zobrist_hash) {
             if let Some(mv) = entry.best_move {
@@ -114,7 +148,12 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
                 } else {
                     format!("{}", mv)
                 };
-                
+
+                // Show thinking line
+                println!("info depth {} score cp {} nodes {} nps {} time {} pv {}",
+                         depth, display_score, context.nodes_searched, nps, time_ms, pv_string);
+
+                // Removed extra logging to keep output clean
 
                 io::stdout().flush().ok();
             }
@@ -158,7 +197,7 @@ fn evaluate_position_complexity(board: &Board) -> u8 {
 
     let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
     let enemy_valuables = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
-    
+
     let mut hanging_count = 0;
     let mut attacked_count = 0;
     let mut enemy_hanging = 0;
@@ -209,7 +248,7 @@ fn evaluate_position_complexity(board: &Board) -> u8 {
     if total_pieces <= 8 && total_pawns <= 3 {
         complexity_score += 1;
     }
-    
+
     // Meio-jogo com muitas peças = potencial tático
     if total_pieces > 20 && queens_on_board >= 2 {
         complexity_score += 1;
