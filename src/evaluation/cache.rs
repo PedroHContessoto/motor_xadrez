@@ -1,89 +1,100 @@
 // Cache de avaliação para melhorar performance
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Entrada do cache de avaliação
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct EvalCacheEntry {
+    pub zobrist_hash: u64,
     pub score: i32,
-    pub depth: u8, // Para futuras implementações com avaliação dependente de profundidade
+    pub depth: u8,
 }
 
-/// Cache de avaliação usando hash Zobrist como chave
+/// Cache de avaliação otimizado com array fixed-size e sem locks
 pub struct EvaluationCache {
-    cache: HashMap<u64, EvalCacheEntry>,
-    max_entries: usize,
-    hits: u64,
-    misses: u64,
+    entries: Vec<EvalCacheEntry>,
+    size_mask: usize,
+    hits: AtomicU64,
+    misses: AtomicU64,
 }
 
 impl EvaluationCache {
-    /// Cria novo cache com tamanho máximo especificado
-    pub fn new(max_entries: usize) -> Self {
+    /// Cria novo cache com tamanho especificado em MB
+    pub fn new(size_mb: usize) -> Self {
+        // Calcular número de entradas baseado no tamanho em MB
+        let size_bytes = size_mb * 1024 * 1024;
+        let entry_size = std::mem::size_of::<EvalCacheEntry>();
+        let mut size = size_bytes / entry_size;
+        
+        // Garantir que é power of 2 para masking eficiente
+        size = size.next_power_of_two();
+        let size_mask = size - 1;
+
         EvaluationCache {
-            cache: HashMap::with_capacity(max_entries),
-            max_entries,
-            hits: 0,
-            misses: 0,
+            entries: vec![EvalCacheEntry::default(); size],
+            size_mask,
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
         }
     }
 
-    /// Busca avaliação no cache
-    pub fn probe(&mut self, zobrist_hash: u64) -> Option<i32> {
-        if let Some(entry) = self.cache.get(&zobrist_hash) {
-            self.hits += 1;
+    /// Busca avaliação no cache (thread-safe, lock-free)
+    pub fn probe(&self, zobrist_hash: u64) -> Option<i32> {
+        let index = (zobrist_hash as usize) & self.size_mask;
+        let entry = self.entries[index];
+        
+        if entry.zobrist_hash == zobrist_hash {
+            self.hits.fetch_add(1, Ordering::Relaxed);
             Some(entry.score)
         } else {
-            self.misses += 1;
+            self.misses.fetch_add(1, Ordering::Relaxed);
             None
         }
     }
 
-    /// Armazena avaliação no cache com estratégia always-replace para performance
+    /// Armazena avaliação no cache (thread-safe, always-replace)
     pub fn store(&mut self, zobrist_hash: u64, score: i32, depth: u8) {
-        // Always-replace: simplesmente substitui/adiciona - muito mais rápido que LRU
-        // Performance crítica em evaluation cache
-        if self.cache.len() >= self.max_entries && !self.cache.contains_key(&zobrist_hash) {
-            // Remove entrada baseada em hash para distribuição uniforme
-            let key_to_remove = zobrist_hash.wrapping_mul(0x9E3779B97F4A7C15) % (self.max_entries as u64);
-            // Encontra primeira chave que casa com o padrão de remoção
-            if let Some(&first_key) = self.cache.keys().next() {
-                self.cache.remove(&first_key);
-            }
-        }
-
-        let entry = EvalCacheEntry { score, depth };
-        self.cache.insert(zobrist_hash, entry);
+        let index = (zobrist_hash as usize) & self.size_mask;
+        self.entries[index] = EvalCacheEntry {
+            zobrist_hash,
+            score,
+            depth,
+        };
     }
 
     /// Limpa o cache
     pub fn clear(&mut self) {
-        self.cache.clear();
-        self.hits = 0;
-        self.misses = 0;
+        for entry in &mut self.entries {
+            *entry = EvalCacheEntry::default();
+        }
+        self.hits.store(0, Ordering::Relaxed);
+        self.misses.store(0, Ordering::Relaxed);
     }
 
     /// Estatísticas do cache
     pub fn hit_rate(&self) -> f64 {
-        if self.hits + self.misses == 0 {
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        if hits + misses == 0 {
             0.0
         } else {
-            self.hits as f64 / (self.hits + self.misses) as f64
+            hits as f64 / (hits + misses) as f64
         }
     }
 
     pub fn get_stats(&self) -> (u64, u64, f64, usize) {
-        (self.hits, self.misses, self.hit_rate(), self.cache.len())
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        let used_entries = self.entries.iter()
+            .filter(|entry| entry.zobrist_hash != 0)
+            .count();
+        (hits, misses, self.hit_rate(), used_entries)
     }
 
-    /// Redimensiona o cache
-    pub fn resize(&mut self, new_max_entries: usize) {
-        self.max_entries = new_max_entries;
-        
-        // Se novo tamanho é menor, remove entradas excedentes
-        while self.cache.len() > new_max_entries {
-            if let Some(&key_to_remove) = self.cache.keys().next() {
-                self.cache.remove(&key_to_remove);
-            }
+    /// Prefill cache com zero para melhor performance inicial
+    pub fn prefill(&mut self) {
+        // Força alocação de toda a memória para evitar page faults
+        for entry in &mut self.entries {
+            entry.zobrist_hash = 0;
         }
     }
 }

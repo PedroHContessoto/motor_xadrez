@@ -5,7 +5,7 @@ use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves,
 const MATE_VALUE: i32 = 99999;
 const FUTILITY_MARGIN: [i32; 10] = [0, 150, 300, 450, 650, 850, 1100, 1350, 1600, 1900];
 const REVERSE_FUTILITY_MARGIN: [i32; 10] = [0, 80, 160, 280, 420, 580, 760, 960, 1180, 1420];
-const LMP_MARGIN: [usize; 10] = [0, 4, 8, 16, 24, 32, 40, 48, 56, 64]; // Late Move Pruning
+const LMP_MARGIN: [usize; 10] = [0, 3, 6, 12, 18, 24, 30, 36, 42, 48]; // Late Move Pruning - more aggressive
 const LMR_MIN_DEPTH: u8 = 2;
 const LMR_MIN_MOVES: usize = 2; // Reduzido de 3 para 2
 const NMP_MIN_DEPTH: u8 = 3; // Null Move Pruning
@@ -198,25 +198,28 @@ fn pvs_search_internal(
     let mut moves_searched = 0;
     let mut tried_moves = Vec::with_capacity(ordered_moves.len());
 
-    // Multi-cut pruning
-    if !is_pv_node && depth >= 8 && moves_searched >= 3 {
+    // Multi-cut pruning melhorado
+    if !is_pv_node && depth >= 8 {
         let mut cut_count = 0;
-        const MC_MOVES_TO_TRY: usize = 6;
-
-        for (i, mv) in ordered_moves.iter().take(MC_MOVES_TO_TRY).enumerate() {
-            if i >= moves_searched { break; }
-
-            // Usa copy-make para performance
+        const MC_MOVES: usize = 3; // Testar apenas 3 primeiros
+        const MC_CUTS_NEEDED: usize = 2; // Precisamos 2 cortes
+        
+        for (i, mv) in ordered_moves.iter().take(MC_MOVES).enumerate() {
             let temp_board = board.make_move_copy(*mv);
-
+            
+            // Busca reduzida
             let score = -pvs_search_internal(
-                &temp_board, depth - 3, -alpha - 1, -alpha, tt, context, start_time, max_time_ms, false, ply + 1
+                &temp_board, 
+                depth - 1 - 2, // Redução extra
+                -beta, 
+                -beta + 1,
+                tt, context, start_time, max_time_ms, false, ply + 1
             );
-
-            if score > alpha {
+            
+            if score >= beta {
                 cut_count += 1;
-                if cut_count >= 3 {
-                    return beta;
+                if cut_count >= MC_CUTS_NEEDED {
+                    return beta; // Multi-cut
                 }
             }
         }
@@ -253,17 +256,33 @@ fn pvs_search_internal(
             }
         }
 
-        // Late Move Pruning otimizado
-        if depth <= 9 && !is_pv_node && !in_check && !gives_check && !is_capture 
-            && mv.promotion.is_none() && moves_searched >= *LMP_MARGIN.get(depth as usize).unwrap_or(&64) {
-            moves_searched += 1;
-            context.pop_move();
-            continue;
+        // Late Move Pruning menos agressivo para evitar perder táticas
+        if depth <= 6 && !is_pv_node && !in_check && !gives_check && !is_capture 
+            && mv.promotion.is_none() && moves_searched > 0 {
+            
+            // Fórmula menos agressiva para evitar perder movimentos táticos importantes
+            let lmp_threshold = match depth {
+                1 => 4,
+                2 => 8, 
+                3 => 12,
+                4 => 20,
+                5 => 30,
+                6 => 40,
+                _ => 50,
+            };
+            
+            if moves_searched >= lmp_threshold {
+                moves_searched += 1;
+                context.pop_move();
+                continue;
+            }
         }
 
-        // SEE Pruning
-        if !is_pv_node && is_capture && depth <= 4 && moves_searched > 0 {
-            if !see_threshold(board, *mv, -200) {
+        // SEE Pruning melhorado - mais rigoroso com capturas ruins
+        if !is_pv_node && is_capture && depth <= 6 && moves_searched > 0 {
+            // Limiar mais rigoroso para capturas ruins
+            let see_threshold_value = if depth <= 2 { -50 } else { -100 };
+            if !see_threshold(board, *mv, see_threshold_value) {
                 context.pop_move();
                 continue;
             }

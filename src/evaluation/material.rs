@@ -57,6 +57,32 @@ impl BoardExt for Board {
 
 pub const MATERIAL_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20000];
 
+/// Avaliação rápida apenas de material (para lazy eval)
+pub fn evaluate_material_only(board: &Board) -> i32 {
+    let white_material = calculate_material_value(board, Color::White);
+    let black_material = calculate_material_value(board, Color::Black);
+    
+    let material_diff = white_material - black_material;
+    
+    if board.to_move == Color::White {
+        material_diff
+    } else {
+        -material_diff
+    }
+}
+
+fn calculate_material_value(board: &Board, color: Color) -> i32 {
+    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    
+    let pawns = (board.pawns & pieces).count_ones() as i32 * MATERIAL_VALUES[0];
+    let knights = (board.knights & pieces).count_ones() as i32 * MATERIAL_VALUES[1];
+    let bishops = (board.bishops & pieces).count_ones() as i32 * MATERIAL_VALUES[2];
+    let rooks = (board.rooks & pieces).count_ones() as i32 * MATERIAL_VALUES[3];
+    let queens = (board.queens & pieces).count_ones() as i32 * MATERIAL_VALUES[4];
+    
+    pawns + knights + bishops + rooks + queens
+}
+
 // Tabelas de posição (PST) - copiadas do código original
 const PAWN_TABLE: [i32; 64] = [0,0,0,0,0,0,0,0,50,50,50,50,50,50,50,50,10,10,20,30,30,20,10,10,5,5,10,25,25,10,5,5,0,0,0,20,20,0,0,0,5,-5,-10,0,0,-10,-5,5,5,10,10,-20,-20,10,10,5,0,0,0,0,0,0,0,0];
 // Tabela de cavalo aprimorada: -50 corners, -30 edges, +30 centro

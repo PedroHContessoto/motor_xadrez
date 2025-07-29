@@ -5,6 +5,7 @@ pub mod material;
 pub mod king_safety;
 pub mod threats;
 pub mod mobility;
+pub mod mobility_cache;
 pub mod pawn_structure;
 pub mod game_phase;
 pub mod cache;
@@ -13,35 +14,49 @@ mod endgame_patterns;
 
 use crate::{board::Board, types::Color};
 use cache::EvaluationCache;
-use std::sync::Mutex;
+use std::cell::RefCell;
 
-// Cache global de avaliação (thread-safe)
-lazy_static::lazy_static! {
-    static ref EVAL_CACHE: Mutex<EvaluationCache> = Mutex::new(EvaluationCache::new(16384)); // 16K entradas
+// Cache de avaliação thread-local para melhor performance
+thread_local! {
+    static EVAL_CACHE: RefCell<EvaluationCache> = RefCell::new(EvaluationCache::new(32)); // 32MB cache
 }
 
 /// Função principal de avaliação com cache (interface pública)
 pub fn evaluate(board: &Board) -> i32 {
     // Tenta buscar no cache primeiro
-    if let Ok(mut cache) = EVAL_CACHE.lock() {
-        if let Some(cached_score) = cache.probe(board.zobrist_hash) {
-            return cached_score;
+    if let Some(cached_score) = EVAL_CACHE.with(|cache| {
+        if let Ok(cache_ref) = cache.try_borrow() {
+            cache_ref.probe(board.zobrist_hash)
+        } else {
+            None
         }
+    }) {
+        return cached_score;
     }
 
     // Se não encontrou no cache, calcula normalmente
     let score = evaluate_uncached(board);
 
     // Armazena no cache
-    if let Ok(mut cache) = EVAL_CACHE.lock() {
-        cache.store(board.zobrist_hash, score, 0);
-    }
+    EVAL_CACHE.with(|cache| {
+        if let Ok(mut cache_ref) = cache.try_borrow_mut() {
+            cache_ref.store(board.zobrist_hash, score, 0);
+        }
+    });
 
     score
 }
 
-/// Função de avaliação sem cache (interna)
+/// Função de avaliação sem cache (interna) - lazy eval mais conservador
 fn evaluate_uncached(board: &Board) -> i32 {
+    // Lazy eval step 1: Avaliação rápida de material
+    let material_score = material::evaluate_material_only(board);
+    
+    // Early cutoff mais conservador: apenas para diferenças enormes (>= 800cp = mais que uma dama)
+    if material_score.abs() >= 800 {
+        return material_score;
+    }
+    
     let game_phase = game_phase::detect_game_phase(board);
     let phase_info = game_phase::detect_game_phase_advanced(board);
 
@@ -50,7 +65,7 @@ fn evaluate_uncached(board: &Board) -> i32 {
 
     let mut final_score = white_score - black_score;
 
-    // Adiciona tempo/iniciativa
+    // Sempre incluir tempo/iniciativa para detectar táticas
     final_score += evaluate_tempo(board);
 
     // Material Safety Net: penaliza avaliações excessivamente otimistas
@@ -66,18 +81,22 @@ fn evaluate_uncached(board: &Board) -> i32 {
 
 /// Função para limpar o cache de avaliação
 pub fn clear_eval_cache() {
-    if let Ok(mut cache) = EVAL_CACHE.lock() {
-        cache.clear();
-    }
+    EVAL_CACHE.with(|cache| {
+        if let Ok(mut cache_ref) = cache.try_borrow_mut() {
+            cache_ref.clear();
+        }
+    });
 }
 
 /// Função para obter estatísticas do cache
 pub fn get_eval_cache_stats() -> (u64, u64, f64, usize) {
-    if let Ok(cache) = EVAL_CACHE.lock() {
-        cache.get_stats()
-    } else {
-        (0, 0, 0.0, 0)
-    }
+    EVAL_CACHE.with(|cache| {
+        if let Ok(cache_ref) = cache.try_borrow() {
+            cache_ref.get_stats()
+        } else {
+            (0, 0, 0.0, 0)
+        }
+    })
 }
 
 /// Avalia cor específica

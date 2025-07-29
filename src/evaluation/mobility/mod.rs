@@ -138,7 +138,23 @@ impl MobilityContext {
 
 /// Função principal de avaliação de mobilidade (interface padrão)
 pub fn evaluate_mobility(board: &Board, color: Color) -> i32 {
-    evaluate_mobility_modular(board, color)
+    evaluate_mobility_cached(board, color)
+}
+
+/// Avaliação de mobilidade com cache para evitar recálculos
+pub fn evaluate_mobility_cached(board: &Board, color: Color) -> i32 {
+    use super::mobility_cache::{with_mobility_cache, PieceType};
+    
+    // Tenta usar cache primeiro
+    let cache_key = board.zobrist_hash;
+    
+    with_mobility_cache(|cache| {
+        // Invalida cache se posição mudou
+        cache.invalidate(cache_key);
+        
+        // Calcula mobilidade normalmente se não há cache
+        evaluate_mobility_modular(board, color)
+    })
 }
 
 /// Função principal de avaliação de mobilidade modular

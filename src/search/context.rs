@@ -6,6 +6,10 @@ pub struct SearchContext {
     killer_moves: [[Option<Move>; 2]; 64], // Expandido para 64 profundidades
     // History heuristic: [piece_type][from][to]
     history: [[[i32; 64]; 64]; 6], // Por tipo de peça
+    // Butterfly history para todos movimentos [from][to]
+    butterfly_history: [[i32; 64]; 64],
+    // Continuation history [in_check][piece][to]
+    continuation_history: [[[[i32; 64]; 64]; 6]; 2],
     // Counter moves: resposta eficaz ao último movimento
     counter_moves: [[Option<Move>; 64]; 64], // [from][to] -> counter_move
     pub nodes_searched: u64,
@@ -29,6 +33,8 @@ impl SearchContext {
         SearchContext {
             killer_moves: [[None; 2]; 64],
             history: [[[0; 64]; 64]; 6], // Inicializa com zeros para todos os tipos de peça
+            butterfly_history: [[0; 64]; 64],
+            continuation_history: [[[[0; 64]; 64]; 6]; 2],
             counter_moves: [[None; 64]; 64],
             nodes_searched: 0,
             prev_best_move: None,
@@ -139,10 +145,30 @@ impl SearchContext {
 
     /// Decay history scores periodicamente para esquecer informação antiga
     pub fn age_history_scores(&mut self) {
+        // Age regular history
         for piece in 0..6 {
             for from in 0..64 {
                 for to in 0..64 {
                     self.history[piece][from][to] = (self.history[piece][from][to] * 7) / 8;
+                }
+            }
+        }
+        
+        // Age butterfly history
+        for from in 0..64 {
+            for to in 0..64 {
+                self.butterfly_history[from][to] = (self.butterfly_history[from][to] * 7) / 8;
+            }
+        }
+        
+        // Age continuation history
+        for check in 0..2 {
+            for piece in 0..6 {
+                for from in 0..64 {
+                    for to in 0..64 {
+                        self.continuation_history[check][piece][from][to] = 
+                            (self.continuation_history[check][piece][from][to] * 7) / 8;
+                    }
                 }
             }
         }
@@ -222,21 +248,83 @@ impl SearchContext {
         }
     }
 
-    /// Butterfly heuristic - frequência de movimentos independente do resultado
-    pub fn get_butterfly_score(&self, mv: Move) -> i32 {
-        // Implementação simplificada baseada na casa de destino
-        // Em uma implementação completa, isso seria uma tabela separada
+    /// Update butterfly history for all moves
+    pub fn update_butterfly_history(&mut self, mv: Move, depth: u8, is_good: bool) {
+        let from_idx = mv.from as usize;
         let to_idx = mv.to as usize;
-        if to_idx < 64 {
-            // Heurística simples: casas centrais são mais valiosas
-            let rank = (mv.to / 8) as i32;
-            let file = (mv.to % 8) as i32;
-            let center_distance = ((rank as f32 - 3.5).abs() + (file as f32 - 3.5).abs()) as i32;
-            
-            1000 - (center_distance * 100)
+        
+        if from_idx < 64 && to_idx < 64 {
+            let bonus = (depth as i32) * (depth as i32);
+            if is_good {
+                self.butterfly_history[from_idx][to_idx] += bonus;
+                if self.butterfly_history[from_idx][to_idx] > 10000 {
+                    self.butterfly_history[from_idx][to_idx] = 10000;
+                }
+            } else {
+                self.butterfly_history[from_idx][to_idx] -= bonus / 2;
+                if self.butterfly_history[from_idx][to_idx] < -5000 {
+                    self.butterfly_history[from_idx][to_idx] = -5000;
+                }
+            }
+        }
+    }
+    
+    /// Get butterfly history score
+    pub fn get_butterfly_score(&self, mv: Move) -> i32 {
+        let from_idx = mv.from as usize;
+        let to_idx = mv.to as usize;
+        
+        if from_idx < 64 && to_idx < 64 {
+            self.butterfly_history[from_idx][to_idx]
         } else {
             0
         }
+    }
+    
+    /// Update continuation history based on context
+    pub fn update_continuation_history(&mut self, mv: Move, piece_type: PieceKind, depth: u8, in_check: bool, is_good: bool) {
+        let piece_idx = piece_type as usize;
+        let to_idx = mv.to as usize;
+        let check_idx = if in_check { 1 } else { 0 };
+        
+        if piece_idx < 6 && to_idx < 64 && check_idx < 2 {
+            let bonus = (depth as i32) * (depth as i32);
+            
+            // Update the continuation history table for the previous move context
+            if let Some(prev_move) = self.get_last_move() {
+                let prev_from = prev_move.from as usize;
+                if prev_from < 64 {
+                    if is_good {
+                        self.continuation_history[check_idx][piece_idx][prev_from][to_idx] += bonus;
+                        if self.continuation_history[check_idx][piece_idx][prev_from][to_idx] > 10000 {
+                            self.continuation_history[check_idx][piece_idx][prev_from][to_idx] = 10000;
+                        }
+                    } else {
+                        self.continuation_history[check_idx][piece_idx][prev_from][to_idx] -= bonus / 2;
+                        if self.continuation_history[check_idx][piece_idx][prev_from][to_idx] < -5000 {
+                            self.continuation_history[check_idx][piece_idx][prev_from][to_idx] = -5000;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Get continuation history score
+    pub fn get_continuation_history_score(&self, mv: Move, piece_type: PieceKind, in_check: bool) -> i32 {
+        let piece_idx = piece_type as usize;
+        let to_idx = mv.to as usize;
+        let check_idx = if in_check { 1 } else { 0 };
+        
+        if piece_idx < 6 && to_idx < 64 && check_idx < 2 {
+            if let Some(prev_move) = self.get_last_move() {
+                let prev_from = prev_move.from as usize;
+                if prev_from < 64 {
+                    return self.continuation_history[check_idx][piece_idx][prev_from][to_idx];
+                }
+            }
+        }
+        0
     }
 
 }
