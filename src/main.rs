@@ -33,6 +33,16 @@ struct PositionComplexity {
     king_proximity: u8,          // Proximidade dos reis (0-8, maior = mais próximos)
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum GamePhase {
+    Opening,
+    EarlyMiddlegame,
+    Middlegame,
+    LateMiddlegame,
+    Endgame,
+    LateEndgame,
+}
+
 impl TimeManager {
     fn new() -> Self {
         TimeManager {
@@ -47,7 +57,7 @@ impl TimeManager {
         }
     }
 
-    // Calcula o tempo ótimo para este lance baseado na situação
+    // Enhanced intelligent time calculation for Arena GUI tournaments
     fn calculate_time_for_move(&self, board: &Board, moves_played: u16) -> u64 {
         if let Some(movetime) = self.movetime {
             return movetime;
@@ -64,60 +74,154 @@ impl TimeManager {
         };
 
         if let Some(time_left) = my_time {
-            // Detecta características táticas da posição
             let tactical_factors = self.analyze_position_complexity(board);
-
-            // Gestão equilibrada do tempo baseada na fase do jogo
-            let mut base_divisor = if moves_played < 10 {
-                30  // Abertura: tempo moderado
-            } else if moves_played < 25 {
-                20  // Meio-jogo: mais tempo para decisões críticas
-            } else if moves_played < 50 {
-                25  // Final médio: balanceado
-            } else {
-                18  // Final técnico: mais tempo para cálculo preciso
-            };
-
-            // Ajustes inteligentes baseados na complexidade
-            if tactical_factors.is_tactical {
-                base_divisor = (base_divisor as f32 * 0.75) as u64; // 25% mais tempo em posições táticas
-                
-                // Ajustes graduais para situações específicas
-                if tactical_factors.has_hanging_pieces {
-                    base_divisor = base_divisor.saturating_sub(2); // Mais tempo para salvar peças
-                }
-                if tactical_factors.in_check {
-                    base_divisor = base_divisor.saturating_sub(3); // Muito mais tempo em xeque
-                }
-                if tactical_factors.is_critical {
-                    base_divisor = base_divisor.saturating_sub(2); // Tempo extra para posições críticas
-                }
-            }
-
-            // Não deixar o divisor ficar muito baixo
-            base_divisor = base_divisor.max(15); // Era 8, agora 15
-
+            let increment = my_inc.unwrap_or(0);
+            
+            // Enhanced game phase detection with more precise time allocation
+            let game_phase = self.determine_game_phase(board, moves_played);
+            let phase_multiplier = self.get_phase_time_multiplier(&game_phase, &tactical_factors);
+            
+            // Intelligent base divisor calculation considering tournament conditions
+            let base_divisor = self.calculate_smart_divisor(time_left, increment, moves_played, &game_phase, &tactical_factors);
+            
+            // Calculate base time allocation
             let base_time = time_left / base_divisor;
-            let increment_bonus = my_inc.unwrap_or(0).saturating_mul(2) / 3;
-            let mut time_with_increment = base_time + increment_bonus;
-
-            // Bônus adicional para posições críticas (reduzido)
-            if tactical_factors.is_critical {
-                time_with_increment = (time_with_increment as f32 * 1.2) as u64; // Era 1.4
-            }
-
-            // Limites mais conservadores
-            let min_time = if time_left > 10000 { 300 } else { 150 }; // Era 500/200
-            let max_time = if tactical_factors.is_tactical {
-                time_left / 4 // Era 1/3, agora 1/4 (mais conservador)
-            } else {
-                time_left / 3 // Era 1/2, agora 1/3
+            
+            // Enhanced increment utilization based on position type
+            let increment_factor = if tactical_factors.is_critical { 
+                0.9 // Use more increment time for critical positions
+            } else if tactical_factors.is_tactical { 
+                0.8 
+            } else { 
+                0.7 // Conservative for normal positions
             };
-
-            time_with_increment.max(min_time).min(max_time)
+            let increment_bonus = (increment as f32 * increment_factor) as u64;
+            
+            let mut allocated_time = base_time + increment_bonus;
+            
+            // Apply tactical multipliers
+            allocated_time = (allocated_time as f32 * phase_multiplier) as u64;
+            
+            // Smart time limits based on remaining time and tournament context
+            let (min_time, max_time) = self.calculate_time_bounds(time_left, increment, &tactical_factors);
+            
+            allocated_time.max(min_time).min(max_time)
         } else {
-            5000 // Era 8000, agora 5000
+            // Fallback for tournaments without time info
+            4000
         }
+    }
+    
+    /// Determines precise game phase for better time management
+    fn determine_game_phase(&self, board: &Board, moves_played: u16) -> GamePhase {
+        let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+        let queens_on_board = board.queens.count_ones();
+        let total_material = self.calculate_total_material(board);
+        
+        if moves_played < 12 && total_pieces > 28 {
+            GamePhase::Opening
+        } else if total_pieces > 20 && queens_on_board >= 2 && total_material > 50 {
+            GamePhase::EarlyMiddlegame
+        } else if total_pieces > 16 && (queens_on_board >= 1 || total_material > 35) {
+            GamePhase::Middlegame
+        } else if total_pieces > 10 && total_material > 20 {
+            GamePhase::LateMiddlegame
+        } else if total_pieces > 6 {
+            GamePhase::Endgame
+        } else {
+            GamePhase::LateEndgame
+        }
+    }
+    
+    /// Calculates intelligent divisor based on tournament time control
+    fn calculate_smart_divisor(&self, time_left: u64, increment: u64, moves_played: u16, 
+                              phase: &GamePhase, tactical: &PositionComplexity) -> u64 {
+        let mut base_divisor = match phase {
+            GamePhase::Opening => 35,           // Conservative in opening
+            GamePhase::EarlyMiddlegame => 25,   // More time for key decisions
+            GamePhase::Middlegame => 20,        // Peak complexity needs time
+            GamePhase::LateMiddlegame => 22,    // Tactical transitions
+            GamePhase::Endgame => 28,           // Precision needed but fewer options
+            GamePhase::LateEndgame => 32,       // Usually simpler calculations
+        };
+        
+        // Adjust for tournament time controls (detect common formats)
+        if time_left > 300000 { // > 5 minutes (likely longer time control)
+            base_divisor = (base_divisor as f32 * 0.85) as u64; // Use more time
+        } else if time_left < 60000 { // < 1 minute (time pressure)
+            base_divisor = (base_divisor as f32 * 1.3) as u64; // Conserve time
+        }
+        
+        // Tactical adjustments
+        if tactical.is_critical {
+            base_divisor = (base_divisor as f32 * 0.7) as u64; // Much more time
+        } else if tactical.is_tactical {
+            base_divisor = (base_divisor as f32 * 0.8) as u64; // More time
+        }
+        
+        // Increment consideration
+        if increment > 1000 { // Good increment
+            base_divisor = (base_divisor as f32 * 0.9) as u64; // Can afford more time
+        } else if increment == 0 { // No increment
+            base_divisor = (base_divisor as f32 * 1.2) as u64; // Be more conservative
+        }
+        
+        base_divisor.max(12).min(50) // Reasonable bounds
+    }
+    
+    /// Gets time multiplier based on phase and tactical factors
+    fn get_phase_time_multiplier(&self, phase: &GamePhase, tactical: &PositionComplexity) -> f32 {
+        let base_multiplier = match phase {
+            GamePhase::Opening => 1.0,
+            GamePhase::EarlyMiddlegame => 1.2,
+            GamePhase::Middlegame => 1.4,
+            GamePhase::LateMiddlegame => 1.3,
+            GamePhase::Endgame => 1.1,
+            GamePhase::LateEndgame => 0.9,
+        };
+        
+        let tactical_bonus: f32 = if tactical.is_critical { 
+            0.5 
+        } else if tactical.is_tactical { 
+            0.3 
+        } else { 
+            0.0 
+        };
+        
+        (base_multiplier + tactical_bonus).min(2.2) // Cap at 2.2x
+    }
+    
+    /// Calculates smart time bounds
+    fn calculate_time_bounds(&self, time_left: u64, increment: u64, tactical: &PositionComplexity) -> (u64, u64) {
+        let min_time = if time_left > 30000 {
+            400
+        } else if time_left > 10000 {
+            250
+        } else {
+            100
+        };
+        
+        let max_ratio = if tactical.is_critical {
+            3.5 // Can use up to 1/3.5 of remaining time for critical positions
+        } else if tactical.is_tactical {
+            4.0 // 1/4 for tactical positions
+        } else if increment > 2000 {
+            5.0 // With good increment, can use 1/5
+        } else {
+            6.0 // Conservative 1/6 for normal positions
+        };
+        
+        let max_time = time_left / max_ratio as u64;
+        
+        (min_time, max_time)
+    }
+    
+    /// Calculates total material value
+    fn calculate_total_material(&self, board: &Board) -> u32 {
+        board.knights.count_ones() * 3 + 
+        board.bishops.count_ones() * 3 + 
+        board.rooks.count_ones() * 5 + 
+        board.queens.count_ones() * 9
     }
 
     /// Analisa a complexidade da posição para determinar gestão de tempo
@@ -401,9 +505,16 @@ fn handle_go_command(board: &Board, tt: &mut TranspositionTable, opening_book: &
         }
     }
 
-    // Se não estiver no livro, calcula normalmente
+    // Enhanced time management with detailed logging for tournaments
     let time_for_move = time_manager.calculate_time_for_move(board, moves_played);
     let max_depth = time_manager.get_adaptive_depth(board);
+    
+    // Log time management decisions for analysis
+    let complexity = time_manager.analyze_position_complexity(board);
+    let phase = time_manager.determine_game_phase(board, moves_played);
+    
+    println!("info string Time allocation: {}ms, Max depth: {}, Phase: {:?}, Tactical: {}, Critical: {}", 
+             time_for_move, max_depth, phase, complexity.is_tactical, complexity.is_critical);
 
     // Força flush para Arena ver imediatamente
     use std::io::{self, Write};
