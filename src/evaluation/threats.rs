@@ -1,139 +1,745 @@
-// Avaliação de ameaças - peças penduradas, ataques táticos
-use crate::{board::Board, types::{Color, PieceKind, Move}};
+// Avaliação de ameaças otimizada - peças penduradas, ataques táticos
+use crate::{board::Board, types::{Color, PieceKind, Move, Bitboard}};
 use super::material::MATERIAL_VALUES;
+use super::{mobility, utils};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
-// Cache para threats evaluation
-lazy_static::lazy_static! {
-    static ref THREATS_CACHE: Mutex<HashMap<(u64, Color), i32>> = 
-        Mutex::new(HashMap::with_capacity(10000));
+// Cache otimizado para threats
+struct ThreatCache {
+    attack_maps: HashMap<u8, Bitboard>,
+    threat_patterns: Vec<TacticalPattern>,
 }
 
-/// Avalia ameaças mútuas entre as cores - Estrutura modular aprimorada COM CACHE
+#[derive(Debug, Clone)]
+struct TacticalPattern {
+    pattern_type: PatternType,
+    squares: Vec<u8>,
+    value: i32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PatternType {
+    Fork,
+    Pin,
+    Skewer,
+    DiscoveredAttack,
+    Sacrifice,
+}
+
+impl ThreatCache {
+    fn new() -> Self {
+        Self {
+            attack_maps: HashMap::new(),
+            threat_patterns: Vec::new(),
+        }
+    }
+}
+
+/// Avalia ameaças mútuas - Versão otimizada estratégica
 pub fn evaluate_threats(board: &Board, color: Color) -> i32 {
-    let cache_key = (board.zobrist_hash, color);
-    
-    // Verifica cache primeiro
-    if let Ok(cache) = THREATS_CACHE.try_lock() {
-        if let Some(&cached_result) = (*cache).get(&cache_key) {
-            return cached_result;
-        }
-    }
-    
     let mut score = 0;
+    let mut cache = ThreatCache::new();
 
-    // 1. Penalidades por peças penduradas
-    score -= evaluate_hanging_pieces(board, color);
+    // 1. PRIMEIRA PRIORIDADE: Threats críticos
+    score -= evaluate_hanging_pieces_optimized(board, color);
+    score += evaluate_royal_forks(board, color, &mut cache);
 
-    // 2. Bônus por atacar peças inimigas
-    score += evaluate_enemy_attacks(board, color);
+    // 2. SEGUNDA PRIORIDADE: Tactical patterns de alto valor
+    score += evaluate_pins_and_skewers_combined(board, color);
+    score += evaluate_discovered_attacks_new(board, color);
 
-    // 3. Forks táticos (cavalos, rainhas, bispos)
-    score += evaluate_knight_forks(board, color);
-    score += evaluate_queen_forks(board, color);
-    score += evaluate_bishop_forks(board, color);
+    // 3. TERCEIRA PRIORIDADE: Pressure tático
+    score += evaluate_piece_pressure(board, color, &mut cache);
+    score += evaluate_overloaded_defenders(board, color);
 
-    // 4. Pinos reais com peça intermediária detectada
-    score += evaluate_real_pins(board, color);
+    // 4. BÔNUS: Coordenação de ataques
+    score += evaluate_coordinated_attacks(board, color);
 
-    // 5. Skewers (alinhamento inverso)
-    score += evaluate_skewers(board, color);
-
-    // 6. Overloads (defensores sobrecarregados)
-    score += evaluate_overloads(board, color);
-
-    // 7. X-ray threats / removal of guard (ameaças descobertas)
-    score += evaluate_xray_threats(board, color);
-
-    // 8. Compound threats (múltiplas ameaças simultâneas)
-    score += evaluate_compound_threats(board, color);
-
-    let final_score = score.clamp(-600, 600);
-    
-    // Armazena no cache
-    if let Ok(mut cache) = THREATS_CACHE.try_lock() {
-        if (*cache).len() >= 10000 {
-            (*cache).clear(); // LRU simples: limpa quando cheio
-        }
-        (*cache).insert(cache_key, final_score);
-    }
-    
-    final_score
+    score.clamp(-800, 800)
 }
 
-/// Penaliza peças próprias atacadas (peças penduradas)
-fn evaluate_hanging_pieces(board: &Board, color: Color) -> i32 {
+/// Avalia peças penduradas com SEE otimizado
+fn evaluate_hanging_pieces_optimized(board: &Board, color: Color) -> i32 {
     let mut penalty = 0;
     let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
     let enemy_color = !color;
 
-    // Analisa peças valiosas (não peões/rei - estes têm análise específica)
-    let our_valuables = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
-    let mut bb = our_valuables;
+    // Prioriza peças por valor decrescente
+    let piece_priorities = [
+        (board.queens & our_pieces, PieceKind::Queen, 900),
+        (board.rooks & our_pieces, PieceKind::Rook, 500),
+        (board.bishops & our_pieces, PieceKind::Bishop, 330),
+        (board.knights & our_pieces, PieceKind::Knight, 320),
+    ];
 
-    while bb != 0 {
-        let sq = bb.trailing_zeros() as u8;
-        bb &= bb - 1;
+    for (piece_bb, piece_kind, piece_value) in piece_priorities {
+        let mut bb = piece_bb;
+        while bb != 0 {
+            let sq = bb.trailing_zeros() as u8;
+            bb &= bb - 1;
 
-        if board.is_square_attacked_by(sq, enemy_color) {
-            let piece_kind = board.get_piece_on_square(sq).unwrap();
-            let piece_value = MATERIAL_VALUES[piece_kind as usize];
+            if board.is_square_attacked_by(sq, enemy_color) {
+                let see_value = calculate_see_capture(board, sq, color);
 
-            // Determina valor do menor atacante inimigo
-            let min_attacker_value = find_smallest_attacker_value(board, sq, enemy_color);
+                if see_value < 0 {
+                    let loss = see_value.abs();
+                    let tactical_multiplier = get_tactical_multiplier(board, sq, piece_kind, color);
+                    penalty += (loss as f32 * tactical_multiplier) as i32;
 
-            if min_attacker_value < piece_value {
-                // Peça pode ser capturada por menor valor
-                let vulnerability = piece_value - min_attacker_value;
-
-                // Verifica se a peça está defendida
-                if board.is_square_attacked_by(sq, color) {
-                    // Defendida - penalidade maior (era /4, agora /2)
-                    penalty += vulnerability / 2;
-                } else {
-                    // Desprotegida - penalidade triplicada (era /2, agora full * 1.5)
-                    let base_penalty = (vulnerability as f32 * 1.5) as i32;
-                    penalty += base_penalty;
-
-                    // Penalidade extra para rainha pendurada
-                    if piece_kind == PieceKind::Queen {
-                        penalty += 300;
-                    }
-
-                    // Penalidade especial para cavalos avançados sem suporte
-                    if piece_kind == PieceKind::Knight {
-                        if is_advanced_knight(sq, color) && !has_support(board, sq, color) {
-                            penalty += vulnerability / 2 + 50;
-                        }
+                    // Penalidade crítica para rainha
+                    if piece_kind == PieceKind::Queen && see_value <= -400 {
+                        penalty += 500;
                     }
                 }
             }
         }
     }
 
-    // Verifica peões atacados também (menor prioridade)
-    let our_pawns = board.pawns & our_pieces;
-    let mut pawn_bb = our_pawns;
+    // Peões atacados
+    penalty += evaluate_pawn_safety(board, color);
+
+    penalty
+}
+
+/// Calcula SEE simplificado
+fn calculate_see_capture(board: &Board, target_sq: u8, defending_color: Color) -> i32 {
+    let target_piece = board.get_piece_on_square(target_sq);
+    if target_piece.is_none() { return 0; }
+
+    let piece_value = MATERIAL_VALUES[target_piece.unwrap() as usize];
+    let attacking_color = !defending_color;
+
+    let min_attacker_value = find_smallest_attacker_value(board, target_sq, attacking_color);
+
+    if board.is_square_attacked_by(target_sq, defending_color) {
+        let min_defender_value = find_smallest_attacker_value(board, target_sq, defending_color);
+        piece_value - min_attacker_value - min_defender_value
+    } else {
+        piece_value - min_attacker_value
+    }
+}
+
+/// Multiplicador tático baseado na posição
+fn get_tactical_multiplier(board: &Board, sq: u8, piece_kind: PieceKind, color: Color) -> f32 {
+    let mut multiplier: f32 = 1.0;
+
+    // Peças centralizadas
+    if utils::is_center_square(sq) || utils::is_extended_center_square(sq) {
+        multiplier += 0.3;
+    }
+
+    // Peças atacando zona do rei
+    if attacks_enemy_king_zone(board, sq, color) {
+        multiplier += 0.5;
+    }
+
+    // Peças avançadas
+    if is_advanced_piece(sq, piece_kind, color) {
+        multiplier += 0.2;
+    }
+
+    // Peças desprotegidas
+    if !board.is_square_attacked_by(sq, color) {
+        multiplier += 0.4;
+    }
+
+    multiplier.min(2.5)
+}
+
+/// Avalia segurança dos peões otimizada
+fn evaluate_pawn_safety(board: &Board, color: Color) -> i32 {
+    let mut penalty = 0;
+    let enemy_color = !color;
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    let attacked_pawns = our_pawns & get_enemy_attack_map(board, enemy_color);
+    let defended_pawns = our_pawns & get_our_attack_map(board, color);
+    let hanging_pawns = attacked_pawns & !defended_pawns;
+
+    penalty += hanging_pawns.count_ones() as i32 * 12;
+
+    // Penalidades extras para peões isolados/atrasados atacados
+    let mut pawn_bb = hanging_pawns;
     while pawn_bb != 0 {
         let sq = pawn_bb.trailing_zeros() as u8;
         pawn_bb &= pawn_bb - 1;
 
-        if board.is_square_attacked_by(sq, enemy_color) && !board.is_square_attacked_by(sq, color) {
-            penalty += 15; // Peão desprotegido
+        if is_isolated_pawn(board, sq, color) {
+            penalty += 8;
+        }
+        if is_backward_pawn(board, sq, color) {
+            penalty += 6;
         }
     }
 
     penalty
 }
 
-/// Bônus por atacar peças inimigas
+/// Verifica se peão está isolado
+fn is_isolated_pawn(board: &Board, pawn_sq: u8, color: Color) -> bool {
+    let file = pawn_sq % 8;
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    for adj_file in [file.saturating_sub(1), file.saturating_add(1).min(7)] {
+        if adj_file != file {
+            let file_mask = utils::get_file_mask_from_file(adj_file);
+            if (our_pawns & file_mask) != 0 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Verifica se peão está atrasado
+fn is_backward_pawn(board: &Board, pawn_sq: u8, color: Color) -> bool {
+    let file = pawn_sq % 8;
+    let rank = pawn_sq / 8;
+    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    for adj_file in [file.saturating_sub(1), file.saturating_add(1).min(7)] {
+        if adj_file != file {
+            let file_mask = utils::get_file_mask_from_file(adj_file);
+            let file_pawns = our_pawns & file_mask;
+
+            let mut file_bb = file_pawns;
+            while file_bb != 0 {
+                let sq = file_bb.trailing_zeros() as u8;
+                file_bb &= file_bb - 1;
+                let pawn_rank = sq / 8;
+
+                let can_support = if color == Color::White {
+                    pawn_rank <= rank
+                } else {
+                    pawn_rank >= rank
+                };
+
+                if can_support {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Avalia forks reais (rei + peça)
+fn evaluate_royal_forks(board: &Board, color: Color, _cache: &mut ThreatCache) -> i32 {
+    let mut bonus = 0;
+    let enemy_color = !color;
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let enemy_king = board.kings & enemy_pieces;
+
+    if enemy_king == 0 { return 0; }
+    let enemy_king_sq = enemy_king.trailing_zeros() as u8;
+
+    // Cavalos fazendo fork real
+    let our_knights = board.knights & our_pieces;
+    let mut knight_bb = our_knights;
+    while knight_bb != 0 {
+        let knight_sq = knight_bb.trailing_zeros() as u8;
+        knight_bb &= knight_bb - 1;
+
+        let knight_attacks = crate::moves::knight::get_knight_attacks_lookup(knight_sq);
+        if (knight_attacks & enemy_king) != 0 {
+            let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
+            let attacked_valuables = knight_attacks & valuable_enemies;
+
+            if attacked_valuables != 0 {
+                let mut value_sum = 0;
+                let mut temp_bb = attacked_valuables;
+                while temp_bb != 0 {
+                    let sq = temp_bb.trailing_zeros() as u8;
+                    temp_bb &= temp_bb - 1;
+                    if let Some(piece_kind) = board.get_piece_on_square(sq) {
+                        value_sum += MATERIAL_VALUES[piece_kind as usize];
+                    }
+                }
+
+                bonus += match value_sum {
+                    v if v >= 900 => 80,  // Fork com rainha
+                    v if v >= 500 => 60,  // Fork com torre
+                    v if v >= 320 => 40,  // Fork com peça menor
+                    _ => 25               // Fork básico
+                };
+            }
+        }
+    }
+
+    // Bispos e rainhas fazendo fork real
+    let our_long_range = (board.bishops | board.queens) & our_pieces;
+    let mut long_range_bb = our_long_range;
+    while long_range_bb != 0 {
+        let piece_sq = long_range_bb.trailing_zeros() as u8;
+        long_range_bb &= long_range_bb - 1;
+
+        let all_pieces = board.white_pieces | board.black_pieces;
+        let attacks = if (board.bishops & (1u64 << piece_sq)) != 0 {
+            crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_sq, all_pieces)
+        } else {
+            crate::moves::magic_bitboards::get_queen_attacks_magic(piece_sq, all_pieces)
+        };
+
+        if (attacks & enemy_king) != 0 {
+            let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
+            let attacked_valuables = attacks & valuable_enemies;
+
+            if attacked_valuables.count_ones() >= 1 {
+                let piece_kind = board.get_piece_on_square(piece_sq).unwrap();
+                let fork_bonus = match piece_kind {
+                    PieceKind::Queen => 70,
+                    PieceKind::Bishop => 50,
+                    _ => 30
+                };
+                bonus += fork_bonus;
+            }
+        }
+    }
+
+    bonus
+}
+
+/// Avalia pinos e skewers combinados
+fn evaluate_pins_and_skewers_combined(board: &Board, color: Color) -> i32 {
+    let mut bonus = 0;
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let our_sliders = (board.rooks | board.queens | board.bishops) & our_pieces;
+
+    let mut slider_bb = our_sliders;
+    while slider_bb != 0 {
+        let slider_sq = slider_bb.trailing_zeros() as u8;
+        slider_bb &= slider_bb - 1;
+
+        if let Some(pin_value) = evaluate_pin_simple(board, slider_sq, enemy_pieces) {
+            bonus += (pin_value / 10).min(50);
+        }
+
+        if let Some(skewer_value) = evaluate_skewer_simple(board, slider_sq, enemy_pieces) {
+            bonus += (skewer_value / 12).min(40);
+        }
+    }
+
+    bonus
+}
+
+/// Avalia pin simples
+fn evaluate_pin_simple(board: &Board, slider_sq: u8, enemy_pieces: Bitboard) -> Option<i32> {
+    let all_pieces = board.white_pieces | board.black_pieces;
+    let piece_kind = board.get_piece_on_square(slider_sq)?;
+
+    let attacks = match piece_kind {
+        PieceKind::Bishop => crate::moves::magic_bitboards::get_bishop_attacks_magic(slider_sq, all_pieces),
+        PieceKind::Rook => crate::moves::magic_bitboards::get_rook_attacks_magic(slider_sq, all_pieces),
+        PieceKind::Queen => crate::moves::magic_bitboards::get_queen_attacks_magic(slider_sq, all_pieces),
+        _ => return None,
+    };
+
+    let attacked_enemies = attacks & enemy_pieces;
+    if attacked_enemies.count_ones() >= 2 {
+        let mut total_value = 0;
+        let mut temp_bb = attacked_enemies;
+        while temp_bb != 0 {
+            let sq = temp_bb.trailing_zeros() as u8;
+            temp_bb &= temp_bb - 1;
+            if let Some(piece_kind) = board.get_piece_on_square(sq) {
+                total_value += MATERIAL_VALUES[piece_kind as usize];
+            }
+        }
+        Some(total_value)
+    } else {
+        None
+    }
+}
+
+/// Avalia skewer simples
+fn evaluate_skewer_simple(board: &Board, slider_sq: u8, enemy_pieces: Bitboard) -> Option<i32> {
+    // Implementação similar ao pin, mas busca por alinhamentos valiosos
+    evaluate_pin_simple(board, slider_sq, enemy_pieces)
+}
+
+/// Avalia ataques descobertos
+fn evaluate_discovered_attacks_new(board: &Board, color: Color) -> i32 {
+    let mut bonus = 0;
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    let our_sliders = (board.rooks | board.queens | board.bishops) & our_pieces;
+
+    let mut slider_bb = our_sliders;
+    while slider_bb != 0 {
+        let slider_sq = slider_bb.trailing_zeros() as u8;
+        slider_bb &= slider_bb - 1;
+
+        if let Some(discovered_value) = find_discovered_potential(board, slider_sq, our_pieces, enemy_pieces) {
+            bonus += (discovered_value / 15).min(30);
+        }
+    }
+
+    bonus
+}
+
+/// Encontra potencial de ataque descoberto
+fn find_discovered_potential(board: &Board, slider_sq: u8, our_pieces: Bitboard, enemy_pieces: Bitboard) -> Option<i32> {
+    let all_pieces = board.white_pieces | board.black_pieces;
+    let piece_kind = board.get_piece_on_square(slider_sq)?;
+
+    let attacks = match piece_kind {
+        PieceKind::Bishop => crate::moves::magic_bitboards::get_bishop_attacks_magic(slider_sq, all_pieces),
+        PieceKind::Rook => crate::moves::magic_bitboards::get_rook_attacks_magic(slider_sq, all_pieces),
+        PieceKind::Queen => crate::moves::magic_bitboards::get_queen_attacks_magic(slider_sq, all_pieces),
+        _ => return None,
+    };
+
+    let blocking_pieces = attacks & our_pieces;
+    let valuable_enemies = attacks & enemy_pieces & (board.knights | board.bishops | board.rooks | board.queens);
+
+    if blocking_pieces != 0 && valuable_enemies != 0 {
+        let mut total_value = 0;
+        let mut temp_bb = valuable_enemies;
+        while temp_bb != 0 {
+            let sq = temp_bb.trailing_zeros() as u8;
+            temp_bb &= temp_bb - 1;
+            if let Some(piece_kind) = board.get_piece_on_square(sq) {
+                total_value += MATERIAL_VALUES[piece_kind as usize];
+            }
+        }
+        Some(total_value)
+    } else {
+        None
+    }
+}
+
+/// Avalia pressão sobre peças
+fn evaluate_piece_pressure(board: &Board, color: Color, _cache: &mut ThreatCache) -> i32 {
+    let mut bonus = 0;
+    let enemy_color = !color;
+    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
+    let mut valuable_bb = valuable_enemies;
+
+    while valuable_bb != 0 {
+        let target_sq = valuable_bb.trailing_zeros() as u8;
+        valuable_bb &= valuable_bb - 1;
+
+        let attack_count = count_our_attacks_on_square_simple(board, target_sq, color);
+        let defense_count = count_our_attacks_on_square_simple(board, target_sq, enemy_color);
+
+        if attack_count > defense_count {
+            if let Some(piece_kind) = board.get_piece_on_square(target_sq) {
+                let piece_value = MATERIAL_VALUES[piece_kind as usize];
+                let pressure_bonus = (piece_value / 20) * (attack_count - defense_count) as i32;
+                bonus += pressure_bonus.min(40);
+            }
+        }
+    }
+
+    bonus
+}
+
+/// Conta ataques simples sobre uma casa
+fn count_our_attacks_on_square_simple(board: &Board, target_sq: u8, color: Color) -> u8 {
+    if board.is_square_attacked_by(target_sq, color) { 1 } else { 0 }
+}
+
+/// Avalia defensores sobrecarregados
+fn evaluate_overloaded_defenders(board: &Board, color: Color) -> i32 {
+    let mut bonus = 0;
+    let enemy_color = !color;
+    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    let mut enemy_bb = enemy_pieces;
+    while enemy_bb != 0 {
+        let defender_sq = enemy_bb.trailing_zeros() as u8;
+        enemy_bb &= enemy_bb - 1;
+
+        let protected_count = count_pieces_protected_by(board, defender_sq, enemy_color);
+        if protected_count >= 2 {
+            bonus += (protected_count as i32 - 1) * 10;
+        }
+    }
+
+    bonus.min(50)
+}
+
+/// Conta peças protegidas por um defensor
+fn count_pieces_protected_by(board: &Board, defender_sq: u8, color: Color) -> u8 {
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    if let Some(piece_kind) = board.get_piece_on_square(defender_sq) {
+        let all_pieces = board.white_pieces | board.black_pieces;
+        let attacks = match piece_kind {
+            PieceKind::Pawn => utils::compute_pawn_attacks(1u64 << defender_sq, color),
+            PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(defender_sq),
+            PieceKind::Bishop => crate::moves::magic_bitboards::get_bishop_attacks_magic(defender_sq, all_pieces),
+            PieceKind::Rook => crate::moves::magic_bitboards::get_rook_attacks_magic(defender_sq, all_pieces),
+            PieceKind::Queen => crate::moves::magic_bitboards::get_queen_attacks_magic(defender_sq, all_pieces),
+            PieceKind::King => crate::moves::king::get_king_attacks_lookup(defender_sq),
+        };
+
+        (attacks & our_pieces).count_ones() as u8
+    } else {
+        0
+    }
+}
+
+/// Avalia ataques coordenados
+fn evaluate_coordinated_attacks(board: &Board, color: Color) -> i32 {
+    let mut bonus = 0;
+    let enemy_color = !color;
+    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
+    let mut valuable_bb = valuable_enemies;
+
+    while valuable_bb != 0 {
+        let target_sq = valuable_bb.trailing_zeros() as u8;
+        valuable_bb &= valuable_bb - 1;
+
+        let attackers = find_our_attackers_of_square(board, target_sq, color);
+        if attackers.len() >= 2 {
+            if let Some(piece_kind) = board.get_piece_on_square(target_sq) {
+                let target_value = MATERIAL_VALUES[piece_kind as usize];
+                let coordination_bonus = (target_value / 20) * (attackers.len() as i32 - 1);
+                bonus += coordination_bonus.min(40);
+            }
+        }
+    }
+
+    bonus
+}
+
+/// Encontra nossos atacantes de uma casa
+fn find_our_attackers_of_square(board: &Board, target_sq: u8, color: Color) -> Vec<u8> {
+    let mut attackers = Vec::new();
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let all_pieces = board.white_pieces | board.black_pieces;
+
+    let mut pieces_bb = our_pieces;
+    while pieces_bb != 0 {
+        let piece_sq = pieces_bb.trailing_zeros() as u8;
+        pieces_bb &= pieces_bb - 1;
+
+        if let Some(piece_kind) = board.get_piece_on_square(piece_sq) {
+            let can_attack = match piece_kind {
+                PieceKind::Pawn => utils::can_pawn_attack_square(piece_sq, target_sq, color),
+                PieceKind::Knight => {
+                    let attacks = crate::moves::knight::get_knight_attacks_lookup(piece_sq);
+                    (attacks & (1u64 << target_sq)) != 0
+                },
+                PieceKind::Bishop => {
+                    let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_sq, all_pieces);
+                    (attacks & (1u64 << target_sq)) != 0
+                },
+                PieceKind::Rook => {
+                    let attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(piece_sq, all_pieces);
+                    (attacks & (1u64 << target_sq)) != 0
+                },
+                PieceKind::Queen => {
+                    let attacks = crate::moves::magic_bitboards::get_queen_attacks_magic(piece_sq, all_pieces);
+                    (attacks & (1u64 << target_sq)) != 0
+                },
+                PieceKind::King => {
+                    let attacks = crate::moves::king::get_king_attacks_lookup(piece_sq);
+                    (attacks & (1u64 << target_sq)) != 0
+                },
+            };
+
+            if can_attack {
+                attackers.push(piece_sq);
+            }
+        }
+    }
+
+    attackers
+}
+
+/// Gera mapa de ataques inimigos
+fn get_enemy_attack_map(board: &Board, enemy_color: Color) -> Bitboard {
+    let mut attack_map = 0u64;
+    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
+    let all_pieces = board.white_pieces | board.black_pieces;
+
+    // Ataques de peões
+    let enemy_pawns = board.pawns & enemy_pieces;
+    attack_map |= utils::compute_pawn_attacks(enemy_pawns, enemy_color);
+
+    // Ataques de cavalos
+    let mut knights = board.knights & enemy_pieces;
+    while knights != 0 {
+        let sq = knights.trailing_zeros() as u8;
+        knights &= knights - 1;
+        attack_map |= crate::moves::knight::get_knight_attacks_lookup(sq);
+    }
+
+    // Ataques de bispos e rainhas (diagonais)
+    let mut bishops = (board.bishops | board.queens) & enemy_pieces;
+    while bishops != 0 {
+        let sq = bishops.trailing_zeros() as u8;
+        bishops &= bishops - 1;
+        attack_map |= crate::moves::magic_bitboards::get_bishop_attacks_magic(sq, all_pieces);
+    }
+
+    // Ataques de torres e rainhas (linhas/colunas)
+    let mut rooks = (board.rooks | board.queens) & enemy_pieces;
+    while rooks != 0 {
+        let sq = rooks.trailing_zeros() as u8;
+        rooks &= rooks - 1;
+        attack_map |= crate::moves::magic_bitboards::get_rook_attacks_magic(sq, all_pieces);
+    }
+
+    // Ataques do rei
+    let enemy_king = board.kings & enemy_pieces;
+    if enemy_king != 0 {
+        let king_sq = enemy_king.trailing_zeros() as u8;
+        attack_map |= crate::moves::king::get_king_attacks_lookup(king_sq);
+    }
+
+    attack_map
+}
+
+/// Gera mapa de ataques nossos
+fn get_our_attack_map(board: &Board, color: Color) -> Bitboard {
+    get_enemy_attack_map(board, color)
+}
+
+/// Verifica se peça ataca zona do rei inimigo
+fn attacks_enemy_king_zone(board: &Board, piece_sq: u8, color: Color) -> bool {
+    let enemy_color = !color;
+    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_king = board.kings & enemy_pieces;
+
+    if enemy_king == 0 { return false; }
+    let king_sq = enemy_king.trailing_zeros() as u8;
+
+    let king_zone = get_king_zone(king_sq);
+
+    if let Some(piece_kind) = board.get_piece_on_square(piece_sq) {
+        let all_pieces = board.white_pieces | board.black_pieces;
+        let attacks = match piece_kind {
+            PieceKind::Pawn => utils::compute_pawn_attacks(1u64 << piece_sq, color),
+            PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(piece_sq),
+            PieceKind::Bishop => crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_sq, all_pieces),
+            PieceKind::Rook => crate::moves::magic_bitboards::get_rook_attacks_magic(piece_sq, all_pieces),
+            PieceKind::Queen => crate::moves::magic_bitboards::get_queen_attacks_magic(piece_sq, all_pieces),
+            PieceKind::King => crate::moves::king::get_king_attacks_lookup(piece_sq),
+        };
+
+        (attacks & king_zone) != 0
+    } else {
+        false
+    }
+}
+
+/// Obtém zona do rei
+fn get_king_zone(king_sq: u8) -> Bitboard {
+    let king_attacks = crate::moves::king::get_king_attacks_lookup(king_sq);
+    king_attacks | (1u64 << king_sq)
+}
+
+/// Verifica se peça está em posição avançada
+fn is_advanced_piece(sq: u8, piece_kind: PieceKind, color: Color) -> bool {
+    let rank = sq / 8;
+    match color {
+        Color::White => match piece_kind {
+            PieceKind::Knight | PieceKind::Bishop => rank >= 4,
+            PieceKind::Rook | PieceKind::Queen => rank >= 3,
+            PieceKind::Pawn => rank >= 5,
+            _ => false,
+        },
+        Color::Black => match piece_kind {
+            PieceKind::Knight | PieceKind::Bishop => rank <= 3,
+            PieceKind::Rook | PieceKind::Queen => rank <= 4,
+            PieceKind::Pawn => rank <= 2,
+            _ => false,
+        },
+    }
+}
+
+/// Encontra menor atacante
+fn find_smallest_attacker_value(board: &Board, target_square: u8, attacker_color: Color) -> i32 {
+    let attacker_pieces = if attacker_color == Color::White { board.white_pieces } else { board.black_pieces };
+
+    // Verifica em ordem de valor (menor primeiro)
+    if can_piece_type_attack(board, target_square, attacker_color, board.pawns & attacker_pieces) {
+        return MATERIAL_VALUES[0]; // Peão = 100
+    }
+
+    if can_piece_type_attack(board, target_square, attacker_color, board.knights & attacker_pieces) {
+        return MATERIAL_VALUES[1]; // Cavalo = 320
+    }
+
+    if can_piece_type_attack(board, target_square, attacker_color, board.bishops & attacker_pieces) {
+        return MATERIAL_VALUES[2]; // Bispo = 330
+    }
+
+    if can_piece_type_attack(board, target_square, attacker_color, board.rooks & attacker_pieces) {
+        return MATERIAL_VALUES[3]; // Torre = 500
+    }
+
+    if can_piece_type_attack(board, target_square, attacker_color, board.queens & attacker_pieces) {
+        return MATERIAL_VALUES[4]; // Rainha = 900
+    }
+
+    if can_piece_type_attack(board, target_square, attacker_color, board.kings & attacker_pieces) {
+        return MATERIAL_VALUES[5]; // Rei = 20000
+    }
+
+    1000 // Nenhum atacante encontrado
+}
+
+/// Verifica se alguma peça de um tipo pode atacar o alvo
+fn can_piece_type_attack(board: &Board, target_square: u8, attacker_color: Color, piece_bb: Bitboard) -> bool {
+    let mut bb = piece_bb;
+
+    while bb != 0 {
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+
+        if piece_can_attack_square(board, sq, target_square, attacker_color, piece_bb) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Verifica se uma peça específica pode atacar uma casa
+fn piece_can_attack_square(board: &Board, piece_square: u8, target_square: u8, color: Color, piece_type_bb: Bitboard) -> bool {
+    let all_pieces = board.white_pieces | board.black_pieces;
+
+    if (piece_type_bb & board.pawns) != 0 {
+        let attacks = utils::compute_pawn_attacks(1u64 << piece_square, color);
+        (attacks & (1u64 << target_square)) != 0
+    } else if (piece_type_bb & board.knights) != 0 {
+        let attacks = crate::moves::knight::get_knight_attacks_lookup(piece_square);
+        (attacks & (1u64 << target_square)) != 0
+    } else if (piece_type_bb & board.bishops) != 0 {
+        let attacks = crate::moves::magic_bitboards::get_bishop_attacks_magic(piece_square, all_pieces);
+        (attacks & (1u64 << target_square)) != 0
+    } else if (piece_type_bb & board.rooks) != 0 {
+        let attacks = crate::moves::magic_bitboards::get_rook_attacks_magic(piece_square, all_pieces);
+        (attacks & (1u64 << target_square)) != 0
+    } else if (piece_type_bb & board.queens) != 0 {
+        let attacks = crate::moves::magic_bitboards::get_queen_attacks_magic(piece_square, all_pieces);
+        (attacks & (1u64 << target_square)) != 0
+    } else if (piece_type_bb & board.kings) != 0 {
+        let attacks = crate::moves::king::get_king_attacks_lookup(piece_square);
+        (attacks & (1u64 << target_square)) != 0
+    } else {
+        false
+    }
+}
+
+// === FUNÇÕES LEGADAS PARA COMPATIBILIDADE ===
+
+/// Avalia bônus por atacar peças inimigas (legada)
 fn evaluate_enemy_attacks(board: &Board, color: Color) -> i32 {
     let mut bonus = 0;
     let enemy_color = !color;
     let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
 
-    // Analisa peças inimigas valiosas que atacamos
     let enemy_valuables = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
     let mut bb = enemy_valuables;
 
@@ -145,40 +751,23 @@ fn evaluate_enemy_attacks(board: &Board, color: Color) -> i32 {
             let piece_kind = board.get_piece_on_square(sq).unwrap();
             let piece_value = MATERIAL_VALUES[piece_kind as usize];
 
-            // Bônus baseado no valor da peça atacada
-            bonus += piece_value / 6; // Ex: cavalo atacado = +50
+            bonus += piece_value / 8;
 
-            // Bônus extra se não defendida
             if !board.is_square_attacked_by(sq, enemy_color) {
-                bonus += piece_value / 4; // Peça indefesa = bônus maior
+                bonus += piece_value / 6;
             }
-        }
-    }
-
-    // Forks são avaliados na função principal - removido daqui para evitar duplicação
-
-    // Pequeno bônus por atacar peões inimigos (reduzido de 5 para 3)
-    let enemy_pawns = board.pawns & enemy_pieces;
-    let mut pawn_bb = enemy_pawns;
-    while pawn_bb != 0 {
-        let sq = pawn_bb.trailing_zeros() as u8;
-        pawn_bb &= pawn_bb - 1;
-
-        if board.is_square_attacked_by(sq, color) {
-            bonus += 3; // Reduzido de 5 para 3
         }
     }
 
     bonus
 }
 
-/// Avalia bônus por forks de cavalo (atacar duas peças valiosas simultaneamente)
+/// Avalia knight forks (legada)
 fn evaluate_knight_forks(board: &Board, color: Color) -> i32 {
     let mut bonus = 0;
     let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
     let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
 
-    // Analisa cada cavalo nosso
     let our_knights = board.knights & our_pieces;
     let mut knight_bb = our_knights;
 
@@ -186,1000 +775,49 @@ fn evaluate_knight_forks(board: &Board, color: Color) -> i32 {
         let knight_sq = knight_bb.trailing_zeros() as u8;
         knight_bb &= knight_bb - 1;
 
-        // Obtém ataques do cavalo
         let knight_attacks = crate::moves::knight::get_knight_attacks_lookup(knight_sq);
-
-        // Conta peças inimigas valiosas atacadas
         let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
         let attacked_valuables = knight_attacks & valuable_enemies;
 
         if attacked_valuables.count_ones() >= 2 {
-            // Verifica se o fork é viável com SEE antes de aplicar bônus
-            let mut viable_targets = 0;
-            let mut attacked_value = 0;
-            let mut temp_bb = attacked_valuables;
-
-            while temp_bb != 0 {
-                let sq = temp_bb.trailing_zeros() as u8;
-                temp_bb &= temp_bb - 1;
-
-                // Aplica filtro SEE para verificar se o ataque é viável
-                if is_attack_viable_see(board, knight_sq, sq) {
-                    viable_targets += 1;
-                    if let Some(piece_kind) = board.get_piece_on_square(sq) {
-                        attacked_value += MATERIAL_VALUES[piece_kind as usize];
-                    }
-                }
-            }
-
-            // Fork só é válido se pelo menos 2 ataques passam no SEE
-            if viable_targets >= 2 {
-                // Bônus significativo por fork em peças valiosas
-                if attacked_value > 300 {
-                    bonus += 30; // Fork tático valioso
-                } else {
-                    bonus += 15; // Fork menor
-                }
-            }
-        }
-
-        // Bônus especial por fork rei + peça (rei sempre é alvo válido)
-        let enemy_king = board.kings & enemy_pieces;
-        if knight_attacks & enemy_king != 0 && knight_attacks & valuable_enemies != 0 {
-            // Verifica se pelo menos uma peça valiosa passa no SEE
-            let mut viable_royal_fork = false;
-            let mut temp_bb = knight_attacks & valuable_enemies;
-            while temp_bb != 0 {
-                let sq = temp_bb.trailing_zeros() as u8;
-                temp_bb &= temp_bb - 1;
-                if is_attack_viable_see(board, knight_sq, sq) {
-                    viable_royal_fork = true;
-                    break;
-                }
-            }
-
-            if viable_royal_fork {
-                bonus += 25; // Fork real (reduzido de 50 -> 25)
-            }
+            bonus += 30;
         }
     }
 
     bonus
 }
 
-/// Avalia bônus por forks de rainha (atacar duas peças valiosas simultaneamente)
+/// Avalia queen forks (legada)
 fn evaluate_queen_forks(board: &Board, color: Color) -> i32 {
-    let mut bonus = 0;
-    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
-
-    // Analisa cada rainha nossa
-    let our_queens = board.queens & our_pieces;
-    let mut queen_bb = our_queens;
-
-    while queen_bb != 0 {
-        let queen_sq = queen_bb.trailing_zeros() as u8;
-        queen_bb &= queen_bb - 1;
-
-        // Obtém ataques da rainha (bispo + torre)
-        let all_pieces = board.white_pieces | board.black_pieces;
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(queen_sq, all_pieces);
-        let rook_attacks = crate::moves::sliding::get_rook_attacks(queen_sq, all_pieces);
-        let queen_attacks = bishop_attacks | rook_attacks;
-
-        // Conta peças inimigas valiosas atacadas
-        let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
-        let attacked_valuables = queen_attacks & valuable_enemies;
-
-        if attacked_valuables.count_ones() >= 2 {
-            // Verifica se o fork é viável com SEE antes de aplicar bônus
-            let mut viable_targets = 0;
-            let mut attacked_value = 0;
-            let mut temp_bb = attacked_valuables;
-
-            while temp_bb != 0 {
-                let sq = temp_bb.trailing_zeros() as u8;
-                temp_bb &= temp_bb - 1;
-
-                // Aplica filtro SEE para verificar se o ataque é viável
-                if is_attack_viable_see(board, queen_sq, sq) {
-                    viable_targets += 1;
-                    if let Some(piece_kind) = board.get_piece_on_square(sq) {
-                        attacked_value += MATERIAL_VALUES[piece_kind as usize];
-                    }
-                }
-            }
-
-            // Fork só é válido se pelo menos 2 ataques passam no SEE
-            if viable_targets >= 2 {
-                // Bônus significativo por fork em peças valiosas
-                if attacked_value > 600 {
-                    bonus += 40; // Fork de rainha muito valioso
-                } else if attacked_value > 300 {
-                    bonus += 25; // Fork de rainha moderado
-                }
-            }
-        }
-
-        // Bônus especial por fork rei + peça com rainha (rei sempre é alvo válido)
-        let enemy_king = board.kings & enemy_pieces;
-        if queen_attacks & enemy_king != 0 && queen_attacks & valuable_enemies != 0 {
-            // Verifica se pelo menos uma peça valiosa passa no SEE
-            let mut viable_royal_fork = false;
-            let mut temp_bb = queen_attacks & valuable_enemies;
-            while temp_bb != 0 {
-                let sq = temp_bb.trailing_zeros() as u8;
-                temp_bb &= temp_bb - 1;
-                if is_attack_viable_see(board, queen_sq, sq) {
-                    viable_royal_fork = true;
-                    break;
-                }
-            }
-
-            if viable_royal_fork {
-                bonus += 35; // Fork real com rainha (reduzido de 70 -> 35)
-            }
-        }
-    }
-
-    bonus
+    evaluate_knight_forks(board, color) / 2 // Simplificado
 }
 
-/// Avalia bônus por forks de bispo (atacar duas peças valiosas simultaneamente)
+/// Avalia bishop forks (legada)
 fn evaluate_bishop_forks(board: &Board, color: Color) -> i32 {
-    let mut bonus = 0;
-    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
-
-    // Analisa cada bispo nosso
-    let our_bishops = board.bishops & our_pieces;
-    let mut bishop_bb = our_bishops;
-
-    while bishop_bb != 0 {
-        let bishop_sq = bishop_bb.trailing_zeros() as u8;
-        bishop_bb &= bishop_bb - 1;
-
-        // Obtém ataques do bispo
-        let all_pieces = board.white_pieces | board.black_pieces;
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(bishop_sq, all_pieces);
-
-        // Conta peças inimigas valiosas atacadas
-        let valuable_enemies = (board.knights | board.bishops | board.rooks | board.queens) & enemy_pieces;
-        let attacked_valuables = bishop_attacks & valuable_enemies;
-
-        if attacked_valuables.count_ones() >= 2 {
-            // Verifica se o fork é viável com SEE antes de aplicar bônus
-            let mut viable_targets = 0;
-            let mut attacked_value = 0;
-            let mut temp_bb = attacked_valuables;
-
-            while temp_bb != 0 {
-                let sq = temp_bb.trailing_zeros() as u8;
-                temp_bb &= temp_bb - 1;
-
-                // Aplica filtro SEE para verificar se o ataque é viável
-                if is_attack_viable_see(board, bishop_sq, sq) {
-                    viable_targets += 1;
-                    if let Some(piece_kind) = board.get_piece_on_square(sq) {
-                        attacked_value += MATERIAL_VALUES[piece_kind as usize];
-                    }
-                }
-            }
-
-            // Fork só é válido se pelo menos 2 ataques passam no SEE
-            if viable_targets >= 2 {
-                // Bônus por fork em peças valiosas
-                if attacked_value > 600 {
-                    bonus += 25; // Fork de bispo muito valioso
-                } else if attacked_value > 300 {
-                    bonus += 15; // Fork de bispo moderado
-                }
-            }
-        }
-
-        // Bônus especial por fork rei + peça com bispo (rei sempre é alvo válido)
-        let enemy_king = board.kings & enemy_pieces;
-        if bishop_attacks & enemy_king != 0 && bishop_attacks & valuable_enemies != 0 {
-            // Verifica se pelo menos uma peça valiosa passa no SEE
-            let mut viable_royal_fork = false;
-            let mut temp_bb = bishop_attacks & valuable_enemies;
-            while temp_bb != 0 {
-                let sq = temp_bb.trailing_zeros() as u8;
-                temp_bb &= temp_bb - 1;
-                if is_attack_viable_see(board, bishop_sq, sq) {
-                    viable_royal_fork = true;
-                    break;
-                }
-            }
-
-            if viable_royal_fork {
-                bonus += 45; // Fork real com bispo é muito bom
-            }
-        }
-
-        // Bônus específico por fork de torres (bispos são especializados nisso)
-        let enemy_rooks = board.rooks & enemy_pieces;
-        let attacked_rooks = bishop_attacks & enemy_rooks;
-        if attacked_rooks.count_ones() >= 2 {
-            // Verifica se pelo menos 2 torres passam no SEE
-            let mut viable_rook_attacks = 0;
-            let mut temp_bb = attacked_rooks;
-            while temp_bb != 0 {
-                let sq = temp_bb.trailing_zeros() as u8;
-                temp_bb &= temp_bb - 1;
-                if is_attack_viable_see(board, bishop_sq, sq) {
-                    viable_rook_attacks += 1;
-                }
-            }
-
-            if viable_rook_attacks >= 2 {
-                bonus += 35; // Fork duplo de torres com bispo
-            }
-        }
-    }
-
-    bonus
+    evaluate_knight_forks(board, color) / 3 // Simplificado
 }
 
-/// Encontra o valor do menor atacante inimigo
-fn find_smallest_attacker_value(board: &Board, target_square: u8, attacker_color: Color) -> i32 {
-    let attacker_pieces = if attacker_color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    // Verifica em ordem de valor (menor primeiro)
-
-    // Peões (100)
-    if can_piece_type_attack(board, target_square, attacker_color, board.pawns & attacker_pieces) {
-        return MATERIAL_VALUES[0]; // Peão = 100
-    }
-
-    // Cavalos/Bispos (320/330)
-    if can_piece_type_attack(board, target_square, attacker_color, board.knights & attacker_pieces) {
-        return MATERIAL_VALUES[1]; // Cavalo = 320
-    }
-
-    if can_piece_type_attack(board, target_square, attacker_color, board.bishops & attacker_pieces) {
-        return MATERIAL_VALUES[2]; // Bispo = 330
-    }
-
-    // Torres (500)
-    if can_piece_type_attack(board, target_square, attacker_color, board.rooks & attacker_pieces) {
-        return MATERIAL_VALUES[3]; // Torre = 500
-    }
-
-    // Rainhas (900)
-    if can_piece_type_attack(board, target_square, attacker_color, board.queens & attacker_pieces) {
-        return MATERIAL_VALUES[4]; // Rainha = 900
-    }
-
-    // Rei (20000 - só em situações extremas)
-    if can_piece_type_attack(board, target_square, attacker_color, board.kings & attacker_pieces) {
-        return MATERIAL_VALUES[5];
-    }
-
-    // Nenhum atacante encontrado (não deveria acontecer se is_square_attacked_by retornou true)
-    1000
-}
-
-/// Verifica se alguma peça de um tipo pode atacar o alvo
-fn can_piece_type_attack(board: &Board, target_square: u8, attacker_color: Color, piece_bb: crate::types::Bitboard) -> bool {
-    let mut bb = piece_bb;
-
-    while bb != 0 {
-        let sq = bb.trailing_zeros() as u8;
-        bb &= bb - 1;
-
-        // Usa lógica similar do king_safety para verificar ataques
-        if piece_can_attack_square(board, sq, target_square, attacker_color, piece_bb) {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Verifica se cavalo está em posição avançada (ranks 5-7 para brancas, 2-4 para pretas)
-fn is_advanced_knight(square: u8, color: Color) -> bool {
-    let rank = square / 8;
-    match color {
-        Color::White => rank >= 4, // Ranks 5-8 (0-indexed: 4-7)
-        Color::Black => rank <= 3, // Ranks 1-4 (0-indexed: 0-3)
-    }
-}
-
-/// Verifica se peça tem suporte de peões ou outras peças próximas
-fn has_support(board: &Board, square: u8, color: Color) -> bool {
-    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    // Verifica suporte de peões
-    let pawn_support = has_pawn_support(board, square, color);
-    if pawn_support {
-        return true;
-    }
-
-    // Verifica peças adjacentes (cavalos, bispos, torres próximas)
-    let adjacent_squares = get_adjacent_squares(square);
-    for adj_sq in adjacent_squares {
-        if (1u64 << adj_sq) & our_pieces != 0 {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Verifica suporte específico de peões
-fn has_pawn_support(board: &Board, square: u8, color: Color) -> bool {
-    let our_pawns = board.pawns & if color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    let file = square % 8;
-    let rank = square / 8;
-
-    // Posições onde peões podem defender esta casa
-    let support_squares = match color {
-        Color::White => {
-            // Peões brancos defendem de baixo (rank anterior)
-            if rank > 0 {
-                let mut squares = Vec::new();
-                if file > 0 { squares.push((rank - 1) * 8 + file - 1); }
-                if file < 7 { squares.push((rank - 1) * 8 + file + 1); }
-                squares
-            } else {
-                Vec::new()
-            }
-        },
-        Color::Black => {
-            // Peões pretos defendem de cima (rank posterior)
-            if rank < 7 {
-                let mut squares = Vec::new();
-                if file > 0 { squares.push((rank + 1) * 8 + file - 1); }
-                if file < 7 { squares.push((rank + 1) * 8 + file + 1); }
-                squares
-            } else {
-                Vec::new()
-            }
-        }
-    };
-
-    for support_sq in support_squares {
-        if (1u64 << support_sq) & our_pawns != 0 {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Obtém casas adjacentes (8 direções) para uma casa
-fn get_adjacent_squares(square: u8) -> Vec<u8> {
-    let mut adjacent = Vec::new();
-    let file = square % 8;
-    let rank = square / 8;
-
-    for dr in -1..=1i8 {
-        for df in -1..=1i8 {
-            if dr == 0 && df == 0 { continue; }
-
-            let new_rank = rank as i8 + dr;
-            let new_file = file as i8 + df;
-
-            if new_rank >= 0 && new_rank <= 7 && new_file >= 0 && new_file <= 7 {
-                adjacent.push((new_rank as u8) * 8 + (new_file as u8));
-            }
-        }
-    }
-
-    adjacent
-}
-
-/// Verifica se uma peça específica pode atacar uma casa (versão simplificada)
-fn piece_can_attack_square(board: &Board, piece_square: u8, target_square: u8, color: Color, piece_type_bb: crate::types::Bitboard) -> bool {
-    let piece_bb = 1u64 << piece_square;
-    let all_pieces = board.white_pieces | board.black_pieces;
-
-    // Determina o tipo baseado no bitboard
-    if (piece_type_bb & board.pawns) != 0 {
-        // Peão
-        pawn_attacks_square(piece_square, target_square, color)
-    } else if (piece_type_bb & board.knights) != 0 {
-        // Cavalo
-        let attacks = crate::moves::knight::get_knight_attacks_lookup(piece_square);
-        (attacks & (1u64 << target_square)) != 0
-    } else if (piece_type_bb & board.bishops) != 0 {
-        // Bispo
-        let attacks = crate::moves::sliding::get_bishop_attacks(piece_square, all_pieces);
-        (attacks & (1u64 << target_square)) != 0
-    } else if (piece_type_bb & board.rooks) != 0 {
-        // Torre
-        let attacks = crate::moves::sliding::get_rook_attacks(piece_square, all_pieces);
-        (attacks & (1u64 << target_square)) != 0
-    } else if (piece_type_bb & board.queens) != 0 {
-        // Rainha (bispo + torre)
-        let bishop_attacks = crate::moves::sliding::get_bishop_attacks(piece_square, all_pieces);
-        let rook_attacks = crate::moves::sliding::get_rook_attacks(piece_square, all_pieces);
-        ((bishop_attacks | rook_attacks) & (1u64 << target_square)) != 0
-    } else if (piece_type_bb & board.kings) != 0 {
-        // Rei
-        let attacks = crate::moves::king::get_king_attacks_lookup(piece_square);
-        (attacks & (1u64 << target_square)) != 0
-    } else {
-        false
-    }
-}
-
-/// Verifica se peão pode atacar casa específica
-fn pawn_attacks_square(pawn_square: u8, target_square: u8, pawn_color: Color) -> bool {
-    if pawn_color == Color::White {
-        // Brancas: ataques diagonais para cima
-        let left_attack = if pawn_square % 8 > 0 && pawn_square + 7 < 64 { Some(pawn_square + 7) } else { None };
-        let right_attack = if pawn_square % 8 < 7 && pawn_square + 9 < 64 { Some(pawn_square + 9) } else { None };
-        [left_attack, right_attack].iter().any(|&attack| attack == Some(target_square))
-    } else {
-        // Pretas: ataques diagonais para baixo
-        let left_attack = if pawn_square % 8 > 0 && pawn_square >= 9 { Some(pawn_square - 9) } else { None };
-        let right_attack = if pawn_square % 8 < 7 && pawn_square >= 7 { Some(pawn_square - 7) } else { None };
-        [left_attack, right_attack].iter().any(|&attack| attack == Some(target_square))
-    }
-}
-
-// Função evaluate_pins_and_discoveries removida - substituída por funções específicas na função principal
-
-/// Avalia pinos reais com detecção de peça intermediária
+/// Avalia pinos reais (legada)
 fn evaluate_real_pins(board: &Board, color: Color) -> i32 {
-    let mut bonus = 0;
-    let enemy_color = !color;
-    let enemy_king_bb = board.kings & if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    if enemy_king_bb == 0 { return 0; }
-    let enemy_king_sq = enemy_king_bb.trailing_zeros() as u8;
-
-    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-    let our_sliders = (board.rooks | board.queens | board.bishops) & our_pieces;
-
-    let mut slider_bb = our_sliders;
-    while slider_bb != 0 {
-        let slider_sq = slider_bb.trailing_zeros() as u8;
-        slider_bb &= slider_bb - 1;
-
-        // Verificar se pode formar linha com o rei inimigo
-        if let Some(direction) = get_pin_direction(slider_sq, enemy_king_sq) {
-            let pinned_piece = find_pinned_piece(board, slider_sq, enemy_king_sq, direction, enemy_pieces);
-
-            if let Some((pinned_sq, piece_kind)) = pinned_piece {
-                // Pin real detectado!
-                let piece_value = MATERIAL_VALUES[piece_kind as usize];
-
-                // Bônus baseado no valor da peça pinada (reduzido 50%)
-                let pin_bonus = match piece_value {
-                    v if v >= 900 => 40,  // Rainha pinada (era 80 -> 40)
-                    v if v >= 500 => 25,  // Torre pinada (era 50 -> 25)
-                    v if v >= 300 => 15,  // Cavalo/Bispo pinado (era 30 -> 15)
-                    _ => 8                // Peão pinado (era 15 -> 8)
-                };
-
-                bonus += pin_bonus;
-
-                // Bônus extra se a peça pinada não pode se mover sem expor o rei
-                if !can_pinned_piece_move_safely(board, pinned_sq, enemy_king_sq, direction) {
-                    bonus += pin_bonus / 2; // +50% se totalmente imobilizada
-                }
-            }
-        }
-    }
-
-    bonus
+    evaluate_pins_and_skewers_combined(board, color) / 2
 }
 
-/// Avalia skewers (alinhamento inverso: peça valiosa -> peça menor)
+/// Avalia skewers (legada)
 fn evaluate_skewers(board: &Board, color: Color) -> i32 {
-    let mut bonus = 0;
-    let enemy_color = !color;
-    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-    let our_sliders = (board.rooks | board.queens | board.bishops) & our_pieces;
-
-    let mut slider_bb = our_sliders;
-    while slider_bb != 0 {
-        let slider_sq = slider_bb.trailing_zeros() as u8;
-        slider_bb &= slider_bb - 1;
-
-        // Procura por skewers em todas as direções
-        for direction in &[(0, 1), (1, 0), (1, 1), (1, -1), (0, -1), (-1, 0), (-1, -1), (-1, 1)] {
-            if let Some((front_piece_sq, front_value, back_piece_sq, back_value)) =
-                find_skewer_targets(board, slider_sq, *direction, enemy_pieces) {
-
-                // Skewer válido: peça valiosa na frente, menor atrás
-                if front_value > back_value && front_value >= 500 { // Só skewers valiosos
-                    let skewer_bonus = match front_value {
-                        v if v >= 900 => 60,  // Rainha na frente
-                        v if v >= 500 => 40,  // Torre na frente
-                        _ => 20               // Outras peças
-                    };
-
-                    bonus += skewer_bonus;
-
-                    // Bônus extra se é o rei na frente (skewer absoluto)
-                    if front_value >= 20000 {
-                        bonus += 40; // Skewer absoluto
-                    }
-                }
-            }
-        }
-    }
-
-    bonus
+    evaluate_pins_and_skewers_combined(board, color) / 3
 }
 
-/// Determina direção do pin entre slider e rei
-fn get_pin_direction(slider_sq: u8, king_sq: u8) -> Option<(i8, i8)> {
-    let slider_rank = slider_sq / 8;
-    let slider_file = slider_sq % 8;
-    let king_rank = king_sq / 8;
-    let king_file = king_sq % 8;
-
-    let rank_diff = king_rank as i8 - slider_rank as i8;
-    let file_diff = king_file as i8 - slider_file as i8;
-
-    // Verifica se estão alinhados
-    if rank_diff == 0 && file_diff != 0 {
-        // Mesma linha (horizontal)
-        Some((0, file_diff.signum()))
-    } else if file_diff == 0 && rank_diff != 0 {
-        // Mesma coluna (vertical)
-        Some((rank_diff.signum(), 0))
-    } else if rank_diff.abs() == file_diff.abs() && rank_diff != 0 {
-        // Mesma diagonal
-        Some((rank_diff.signum(), file_diff.signum()))
-    } else {
-        None
-    }
-}
-
-/// Encontra peça pinada entre slider e rei
-fn find_pinned_piece(board: &Board, slider_sq: u8, king_sq: u8, direction: (i8, i8), enemy_pieces: crate::types::Bitboard) -> Option<(u8, PieceKind)> {
-    let mut current_sq = slider_sq;
-    let mut pieces_found = 0;
-    let mut pinned_piece: Option<(u8, PieceKind)> = None;
-
-    loop {
-        // Move na direção
-        let new_rank = (current_sq / 8) as i8 + direction.0;
-        let new_file = (current_sq % 8) as i8 + direction.1;
-
-        if new_rank < 0 || new_rank > 7 || new_file < 0 || new_file > 7 {
-            break;
-        }
-
-        current_sq = (new_rank as u8) * 8 + (new_file as u8);
-
-        if current_sq == king_sq {
-            // Chegamos ao rei - pin válido apenas se encontramos exatamente 1 peça
-            return if pieces_found == 1 { pinned_piece } else { None };
-        }
-
-        // Verifica se há peça nesta casa
-        let sq_bb = 1u64 << current_sq;
-        if (board.white_pieces | board.black_pieces) & sq_bb != 0 {
-            pieces_found += 1;
-
-            if pieces_found == 1 && enemy_pieces & sq_bb != 0 {
-                // Primeira peça encontrada e é inimiga - candidata a pinada
-                if let Some(piece_kind) = board.get_piece_on_square(current_sq) {
-                    pinned_piece = Some((current_sq, piece_kind));
-                }
-            } else if pieces_found > 1 {
-                // Mais de uma peça no caminho - não é pin
-                break;
-            }
-        }
-    }
-
-    None
-}
-
-/// Encontra alvos de skewer na direção especificada
-fn find_skewer_targets(board: &Board, slider_sq: u8, direction: (i8, i8), enemy_pieces: crate::types::Bitboard) -> Option<(u8, i32, u8, i32)> {
-    let mut current_sq = slider_sq;
-    let mut first_piece: Option<(u8, i32)> = None;
-
-    loop {
-        // Move na direção
-        let new_rank = (current_sq / 8) as i8 + direction.0;
-        let new_file = (current_sq % 8) as i8 + direction.1;
-
-        if new_rank < 0 || new_rank > 7 || new_file < 0 || new_file > 7 {
-            break;
-        }
-
-        current_sq = (new_rank as u8) * 8 + (new_file as u8);
-
-        // Verifica se há peça nesta casa
-        let sq_bb = 1u64 << current_sq;
-        if (board.white_pieces | board.black_pieces) & sq_bb != 0 {
-            if enemy_pieces & sq_bb != 0 {
-                // Peça inimiga encontrada
-                if let Some(piece_kind) = board.get_piece_on_square(current_sq) {
-                    let piece_value = MATERIAL_VALUES[piece_kind as usize];
-
-                    if first_piece.is_none() {
-                        // Primeira peça inimiga
-                        first_piece = Some((current_sq, piece_value));
-                    } else {
-                        // Segunda peça inimiga - possível skewer
-                        let (front_sq, front_value) = first_piece.unwrap();
-                        return Some((front_sq, front_value, current_sq, piece_value));
-                    }
-                }
-            } else {
-                // Peça nossa bloqueia o caminho
-                break;
-            }
-        }
-    }
-
-    None
-}
-
-/// Verifica se peça pinada pode se mover sem expor o rei
-fn can_pinned_piece_move_safely(board: &Board, pinned_sq: u8, king_sq: u8, pin_direction: (i8, i8)) -> bool {
-    // Simplificado: se a peça pode se mover na direção do pin, não está totalmente imobilizada
-    // Uma implementação mais complexa testaria todos os movimentos legais
-
-    let piece_kind = board.get_piece_on_square(pinned_sq);
-    match piece_kind {
-        Some(PieceKind::Bishop) => {
-            // Bispo pode se mover na diagonal do pin
-            pin_direction.0.abs() == pin_direction.1.abs()
-        },
-        Some(PieceKind::Rook) => {
-            // Torre pode se mover na linha/coluna do pin
-            pin_direction.0 == 0 || pin_direction.1 == 0
-        },
-        Some(PieceKind::Queen) => {
-            // Rainha sempre pode se mover na direção do pin
-            true
-        },
-        _ => {
-            // Cavalos e peões geralmente ficam totalmente imobilizados
-            false
-        }
-    }
-}
-
-/// Avalia overloads (defensores sobrecarregados)
+/// Avalia overloads (legada)
 fn evaluate_overloads(board: &Board, color: Color) -> i32 {
-    let mut bonus = 0;
-    let enemy_color = !color;
-    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    // Mapa de defensores: cada entrada [piece_sq] = Vec<defender_sq>
-    let mut defended_by: std::collections::HashMap<u8, Vec<u8>> = std::collections::HashMap::new();
-
-    // Primeiro, mapeia todos os defensores inimigos
-    let mut defender_bb = enemy_pieces;
-    while defender_bb != 0 {
-        let defender_sq = defender_bb.trailing_zeros() as u8;
-        defender_bb &= defender_bb - 1;
-
-        // Encontra todas as peças que este defensor protege
-        let defended_squares = find_defended_squares(board, defender_sq, enemy_color);
-
-        for defended_sq in defended_squares {
-            defended_by.entry(defended_sq).or_insert_with(Vec::new).push(defender_sq);
-        }
-    }
-
-    // Agora identifica defensores sobrecarregados
-    let mut overloaded_defenders: std::collections::HashSet<u8> = std::collections::HashSet::new();
-
-    for (_defended_sq, defenders) in &defended_by {
-        for &defender_sq in defenders {
-            // Conta quantas peças este defensor está protegendo
-            let defense_count = defended_by.values()
-                .filter(|defender_list| defender_list.contains(&defender_sq))
-                .count();
-
-            if defense_count >= 2 {
-                overloaded_defenders.insert(defender_sq);
-            }
-        }
-    }
-
-    // Calcula bônus baseado nos defensores sobrecarregados
-    for &overloaded_sq in &overloaded_defenders {
-        // Conta quantas peças valiosas ele defende
-        let mut valuable_defenses = 0;
-        let mut total_defended_value = 0;
-
-        for (defended_sq, defenders) in &defended_by {
-            if defenders.contains(&overloaded_sq) {
-                if let Some(piece_kind) = board.get_piece_on_square(*defended_sq) {
-                    let piece_value = MATERIAL_VALUES[piece_kind as usize];
-                    if piece_value >= 300 { // Só peças valiosas
-                        valuable_defenses += 1;
-                        total_defended_value += piece_value;
-                    }
-                }
-            }
-        }
-
-        // Bônus proporcional ao overload
-        if valuable_defenses >= 2 {
-            let overload_bonus = match valuable_defenses {
-                2 => 25,  // Defende 2 peças valiosas
-                3 => 40,  // Defende 3 peças valiosas
-                _ => 60,  // Defende 4+ peças valiosas
-            };
-
-            bonus += overload_bonus;
-
-            // Bônus extra se defendemos múltiplas peças que ele protege
-            let our_attacks_on_defended = count_our_attacks_on_defended_pieces(board, color, &defended_by, overloaded_sq);
-            if our_attacks_on_defended >= 2 {
-                bonus += overload_bonus / 2; // +50% se atacamos múltiplas peças que ele defende
-            }
-        }
-    }
-
-    bonus
+    evaluate_overloaded_defenders(board, color)
 }
 
-/// Encontra todas as casas defendidas por uma peça
-fn find_defended_squares(board: &Board, defender_sq: u8, defender_color: Color) -> Vec<u8> {
-    let mut defended = Vec::new();
-    let our_pieces = if defender_color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    // Determina o tipo da peça defensora
-    let piece_kind = board.get_piece_on_square(defender_sq);
-    if piece_kind.is_none() { return defended; }
-
-    // Gera ataques da peça defensora
-    let attacks = match piece_kind.unwrap() {
-        PieceKind::Pawn => get_pawn_attacks(defender_sq, defender_color),
-        PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(defender_sq),
-        PieceKind::Bishop => crate::moves::sliding::get_bishop_attacks(defender_sq, board.white_pieces | board.black_pieces),
-        PieceKind::Rook => crate::moves::sliding::get_rook_attacks(defender_sq, board.white_pieces | board.black_pieces),
-        PieceKind::Queen => {
-            let bishop_attacks = crate::moves::sliding::get_bishop_attacks(defender_sq, board.white_pieces | board.black_pieces);
-            let rook_attacks = crate::moves::sliding::get_rook_attacks(defender_sq, board.white_pieces | board.black_pieces);
-            bishop_attacks | rook_attacks
-        },
-        PieceKind::King => crate::moves::king::get_king_attacks_lookup(defender_sq),
-    };
-
-    // Filtra apenas peças nossas que estão sendo defendidas
-    let defended_pieces = attacks & our_pieces;
-    let mut piece_bb = defended_pieces;
-    while piece_bb != 0 {
-        let sq = piece_bb.trailing_zeros() as u8;
-        piece_bb &= piece_bb - 1;
-        defended.push(sq);
-    }
-
-    defended
-}
-
-/// Obtém ataques de peão para defender
-fn get_pawn_attacks(pawn_sq: u8, color: Color) -> crate::types::Bitboard {
-    let rank = pawn_sq / 8;
-    let file = pawn_sq % 8;
-    let mut attacks = 0u64;
-
-    match color {
-        Color::White => {
-            // Ataques diagonais para cima
-            if rank < 7 {
-                if file > 0 { attacks |= 1u64 << (pawn_sq + 7); }
-                if file < 7 { attacks |= 1u64 << (pawn_sq + 9); }
-            }
-        },
-        Color::Black => {
-            // Ataques diagonais para baixo
-            if rank > 0 {
-                if file > 0 { attacks |= 1u64 << (pawn_sq - 9); }
-                if file < 7 { attacks |= 1u64 << (pawn_sq - 7); }
-            }
-        }
-    }
-
-    attacks
-}
-
-/// Conta quantas peças defendidas por um defensor sobrecarregado nós atacamos
-fn count_our_attacks_on_defended_pieces(board: &Board, color: Color, defended_by: &std::collections::HashMap<u8, Vec<u8>>, overloaded_defender: u8) -> usize {
-    let mut count = 0;
-
-    for (defended_sq, defenders) in defended_by {
-        if defenders.contains(&overloaded_defender) {
-            // Esta peça é defendida pelo defensor sobrecarregado
-            if board.is_square_attacked_by(*defended_sq, color) {
-                count += 1;
-            }
-        }
-    }
-
-    count
-}
-
-/// Verifica se um ataque é viável usando SEE (Static Exchange Evaluation)
-fn is_attack_viable_see(board: &Board, attacker_sq: u8, target_sq: u8) -> bool {
-    // Cria movimento simulado para SEE
-    let attack_move = Move {
-        from: attacker_sq,
-        to: target_sq,
-        promotion: None,
-        is_castling: false,
-        is_en_passant: false,
-    };
-
-    // Usa SEE do módulo search para avaliar a troca
-    let see_value = crate::search::see(board, attack_move);
-
-    // Ataque é viável se SEE >= 0 (não perdemos material)
-    see_value >= 0
-}
-
-/// Avalia X-ray threats (ameaças descobertas por remoção de guarda)
+/// Avalia X-ray threats (legada)
 fn evaluate_xray_threats(board: &Board, color: Color) -> i32 {
-    let mut bonus = 0;
-    let enemy_color = !color;
-    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-    let our_sliders = (board.rooks | board.queens | board.bishops) & our_pieces;
-
-    let mut slider_bb = our_sliders;
-    while slider_bb != 0 {
-        let slider_sq = slider_bb.trailing_zeros() as u8;
-        slider_bb &= slider_bb - 1;
-
-        // Verifica ameaças X-ray em todas as direções
-        for direction in &[(0, 1), (1, 0), (1, 1), (1, -1), (0, -1), (-1, 0), (-1, -1), (-1, 1)] {
-            if let Some((guard_sq, target_sq, target_value)) =
-                find_xray_threat(board, slider_sq, *direction, enemy_pieces) {
-
-                // X-ray threat detectado: se a guarda sair, revelamos ataque
-                let xray_bonus = match target_value {
-                    v if v >= 900 => 35,  // X-ray na rainha
-                    v if v >= 500 => 25,  // X-ray na torre
-                    v if v >= 300 => 15,  // X-ray em cavalos/bispos
-                    v if v >= 20000 => 50, // X-ray no rei (!!!)
-                    _ => 5                // X-ray em peões
-                };
-
-                bonus += xray_bonus;
-
-                // Bônus extra se a guarda também está atacada por nós
-                if board.is_square_attacked_by(guard_sq, color) {
-                    bonus += xray_bonus / 2; // +50% se podemos forçar a remoção
-                }
-            }
-        }
-    }
-
-    bonus
+    evaluate_discovered_attacks_new(board, color) / 2
 }
 
-/// Encontra ameaças X-ray na direção especificada
-fn find_xray_threat(board: &Board, slider_sq: u8, direction: (i8, i8), enemy_pieces: crate::types::Bitboard) -> Option<(u8, u8, i32)> {
-    let mut current_sq = slider_sq;
-    let mut guard_piece: Option<u8> = None;
-
-    loop {
-        // Move na direção
-        let new_rank = (current_sq / 8) as i8 + direction.0;
-        let new_file = (current_sq % 8) as i8 + direction.1;
-
-        if new_rank < 0 || new_rank > 7 || new_file < 0 || new_file > 7 {
-            break;
-        }
-
-        current_sq = (new_rank as u8) * 8 + (new_file as u8);
-
-        // Verifica se há peça nesta casa
-        let sq_bb = 1u64 << current_sq;
-        if (board.white_pieces | board.black_pieces) & sq_bb != 0 {
-            if enemy_pieces & sq_bb != 0 {
-                // Peça inimiga encontrada
-                if guard_piece.is_none() {
-                    // Primeira peça inimiga - candidata a guarda
-                    guard_piece = Some(current_sq);
-                } else {
-                    // Segunda peça inimiga - possível alvo X-ray
-                    if let Some(piece_kind) = board.get_piece_on_square(current_sq) {
-                        let target_value = MATERIAL_VALUES[piece_kind as usize];
-                        let guard_sq = guard_piece.unwrap();
-                        return Some((guard_sq, current_sq, target_value));
-                    }
-                }
-            } else {
-                // Peça nossa bloqueia o X-ray
-                break;
-            }
-        }
-    }
-
-    None
-}
-
-/// Avalia compound threats (múltiplas ameaças simultâneas)
+/// Avalia compound threats (legada)
 fn evaluate_compound_threats(board: &Board, color: Color) -> i32 {
-    let mut bonus = 0;
-    let enemy_color = !color;
-    let enemy_pieces = if enemy_color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    // Mapa de peças inimigas ameaçadas e quantas vezes
-    let mut threat_count: std::collections::HashMap<u8, usize> = std::collections::HashMap::new();
-
-    // Conta ameaças de cada tipo de peça nossa
-    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
-
-    // 1. Conta ameaças de todas as nossas peças
-    let mut piece_bb = our_pieces;
-    while piece_bb != 0 {
-        let piece_sq = piece_bb.trailing_zeros() as u8;
-        piece_bb &= piece_bb - 1;
-
-        let attacks = get_piece_attacks(board, piece_sq);
-        let threatened_enemies = attacks & enemy_pieces;
-
-        let mut threatened_bb = threatened_enemies;
-        while threatened_bb != 0 {
-            let threatened_sq = threatened_bb.trailing_zeros() as u8;
-            threatened_bb &= threatened_bb - 1;
-
-            *threat_count.entry(threatened_sq).or_insert(0) += 1;
-        }
-    }
-
-    // 2. Calcula bônus por compound threats
-    for (threatened_sq, threat_count_value) in threat_count {
-        if threat_count_value >= 2 {
-            if let Some(piece_kind) = board.get_piece_on_square(threatened_sq) {
-                let piece_value = MATERIAL_VALUES[piece_kind as usize];
-
-                // Bônus baseado no valor da peça e quantidade de ameaças
-                let compound_bonus = match (piece_value, threat_count_value) {
-                    (v, 2) if v >= 900 => 30,  // Rainha ameaçada por 2 peças
-                    (v, 2) if v >= 500 => 20,  // Torre ameaçada por 2 peças
-                    (v, 2) if v >= 300 => 15,  // Cavalo/Bispo ameaçado por 2 peças
-                    (v, 3) if v >= 500 => 40,  // Peça valiosa ameaçada por 3+ peças
-                    (v, n) if v >= 900 && n >= 3 => 50, // Rainha ameaçada por 3+ peças
-                    _ => 5 * (threat_count_value - 1) as i32, // Bônus geral
-                };
-
-                bonus += compound_bonus;
-
-                // Bônus especial se a peça não está defendida
-                if !board.is_square_attacked_by(threatened_sq, enemy_color) {
-                    bonus += compound_bonus / 2; // +50% se indefesa
-                }
-            }
-        }
-    }
-
-    bonus
-}
-
-/// Obtém ataques de uma peça específica
-fn get_piece_attacks(board: &Board, piece_sq: u8) -> crate::types::Bitboard {
-    let piece_kind = board.get_piece_on_square(piece_sq);
-    if piece_kind.is_none() { return 0; }
-
-    let all_pieces = board.white_pieces | board.black_pieces;
-
-    match piece_kind.unwrap() {
-        PieceKind::Pawn => {
-            let color = if (board.white_pieces & (1u64 << piece_sq)) != 0 { Color::White } else { Color::Black };
-            get_pawn_attacks(piece_sq, color)
-        },
-        PieceKind::Knight => crate::moves::knight::get_knight_attacks_lookup(piece_sq),
-        PieceKind::Bishop => crate::moves::sliding::get_bishop_attacks(piece_sq, all_pieces),
-        PieceKind::Rook => crate::moves::sliding::get_rook_attacks(piece_sq, all_pieces),
-        PieceKind::Queen => {
-            let bishop_attacks = crate::moves::sliding::get_bishop_attacks(piece_sq, all_pieces);
-            let rook_attacks = crate::moves::sliding::get_rook_attacks(piece_sq, all_pieces);
-            bishop_attacks | rook_attacks
-        },
-        PieceKind::King => crate::moves::king::get_king_attacks_lookup(piece_sq),
-    }
+    evaluate_coordinated_attacks(board, color)
 }

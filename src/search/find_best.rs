@@ -317,6 +317,15 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
         best_score = fallback_score;
     }
 
+    // VALIDAÇÃO FINAL: Garante que o movimento é legal
+    if let Some(mv) = best_move {
+        if !legal_moves.contains(&mv) {
+            eprintln!("WARNING: Best move {} is not legal! Using fallback.", mv);
+            // Força usar primeiro movimento legal
+            best_move = Some(legal_moves[0]);
+        }
+    }
+
     best_move
 }
 

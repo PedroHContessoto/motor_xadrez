@@ -7,14 +7,14 @@ use super::super::pawn_structure;
 pub fn evaluate_pawn_mobility_advanced(context: &MobilityContext) -> i32 {
     // Delega para o sistema integrado avançado em pawn_structure.rs
     // que agora inclui toda a funcionalidade de mobilidade
-    let analysis = pawn_structure::evaluate_pawn_structure_advanced(&context.board, context.color);
+    let analysis = pawn_structure::evaluate_pawn_structure(&context.board, context.color);
     
     // Retorna apenas os componentes de mobilidade/dinâmica
-    analysis.pawn_mobility + analysis.tactical_mobility + analysis.strategic_advances
+    analysis
 }
 
 // Mantém funções auxiliares para compatibilidade se necessário
-pub use super::super::pawn_structure::{get_set_bits_simple, AdvancedPawnAnalysis, PassedPawnInfo};
+pub use super::super::pawn_structure::{get_set_bits_simple, evaluate_pawn_structure};
 
 /// Análise rápida de mobilidade para uso em outras avaliações
 pub fn quick_pawn_mobility_analysis(context: &MobilityContext) -> i32 {
