@@ -28,15 +28,19 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
     let mut fallback_move = legal_moves[0];
     let mut fallback_score = evaluation::evaluate(board);
 
-    // Detecta complexidade da posição para ajuste inteligente de tempo
+    // Enhanced position complexity evaluation for better time management
     let tactical_level = evaluate_position_complexity(board);
     let tactical_time_multiplier = match tactical_level {
-        3 => 1.5,   // Reduzido de 1.3 -> 1.5 (era 2.0)
-        2 => 1.2,   // Reduzido de 1.15 -> 1.2 (era 1.4)
-        1 => 1.1,   // Reduzido de 1.05 -> 1.1 (era 1.15)
-        _ => 1.0    // Posição normal
+        3 => 1.8,   // Very tactical positions need more time
+        2 => 1.4,   // Moderately tactical positions
+        1 => 1.15,  // Slightly tactical positions
+        _ => 1.0    // Normal positions
     };
-    let _effective_time_limit = (max_time_ms as f32 * tactical_time_multiplier) as u64;
+    
+    // Dynamic time adjustment based on game phase
+    let game_phase_multiplier = evaluate_game_phase_time_factor(board);
+    let combined_multiplier = tactical_time_multiplier * game_phase_multiplier;
+    let _effective_time_limit = (max_time_ms as f32 * combined_multiplier) as u64;
 
     // DEBUG: Log inicial detalhado
     println!("DEBUG: Starting search - max_time_ms: {}, tactical_level: {}, multiplier: {:.2}",
@@ -53,12 +57,17 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
         // DEBUG: Log início da iteração
         println!("DEBUG: Starting depth {}, total_elapsed: {}ms", depth, elapsed);
 
-        // Time management com limits seguros
-        let base_timeout = max_time_ms / 25;  // Mais generoso: 1/25 do tempo (era 1/30)
-        let max_timeout = max_time_ms / 6;    // Mais generoso: 1/6 do tempo (era 1/8)
-
-        let adjusted_timeout = (base_timeout as f32 * tactical_time_multiplier) as u64;
+        // Enhanced time management with adaptive allocation
+        let base_timeout = max_time_ms / 20;  // More generous base allocation
+        let max_timeout = max_time_ms / 5;    // Higher maximum per iteration
+        
+        // Apply combined multipliers for more intelligent time allocation
+        let adjusted_timeout = (base_timeout as f32 * combined_multiplier) as u64;
         let final_timeout = adjusted_timeout.min(max_timeout);
+        
+        // Adaptive timeout based on search instability
+        let stability_factor = if stable_count >= 2 { 0.8 } else { 1.2 };
+        let dynamic_timeout = (final_timeout as f32 * stability_factor) as u64;
 
         // Depth limit aumentado para melhor jogo
         let max_safe_depth = match tactical_level {
@@ -73,9 +82,9 @@ pub fn find_best_move_with_time(board: &Board, max_depth: u8, mut max_time_ms: u
             break;
         }
 
-        if depth > 8 && elapsed > final_timeout {
+        if depth > 8 && elapsed > dynamic_timeout {
             println!("DEBUG: Time limit reached at depth {}, elapsed: {}ms, limit: {}ms",
-                     depth, elapsed, final_timeout);
+                     depth, elapsed, dynamic_timeout);
             break;
         }
 
@@ -256,4 +265,52 @@ fn evaluate_position_complexity(board: &Board) -> u8 {
 
     // 5. Limita o score máximo a 3
     complexity_score.min(3)
+}
+
+/// Evaluates game phase factor for time allocation
+fn evaluate_game_phase_time_factor(board: &Board) -> f32 {
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    let total_pawns = board.pawns.count_ones();
+    let queens_on_board = board.queens.count_ones();
+    let total_material = board.knights.count_ones() * 3 + 
+                        board.bishops.count_ones() * 3 + 
+                        board.rooks.count_ones() * 5 + 
+                        board.queens.count_ones() * 9;
+    
+    match total_pieces {
+        // Opening: Many pieces, need more time for complex calculations
+        26..=32 => {
+            if queens_on_board >= 2 && total_material >= 60 {
+                1.3 // Complex opening positions
+            } else {
+                1.1 // Normal opening
+            }
+        },
+        // Middlegame: Peak complexity, most time needed
+        16..=25 => {
+            if queens_on_board >= 1 && total_material >= 40 {
+                1.4 // Complex middlegame
+            } else {
+                1.2 // Normal middlegame
+            }
+        },
+        // Endgame: Technical positions may need precision
+        8..=15 => {
+            if total_pawns <= 4 && queens_on_board == 0 {
+                1.2 // Technical endgame (need precision)
+            } else if total_pawns >= 6 {
+                1.0 // Pawn endgame (usually straightforward)
+            } else {
+                1.1 // Normal endgame
+            }
+        },
+        // Late endgame: Usually faster but some positions are tricky
+        _ => {
+            if total_pawns >= 2 {
+                1.1 // Pawn races can be complex
+            } else {
+                0.9 // Simple material endgames
+            }
+        }
+    }
 }

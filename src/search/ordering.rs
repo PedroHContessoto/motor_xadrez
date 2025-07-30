@@ -26,29 +26,41 @@ pub fn order_moves(
         if Some(mv) == tt_move {
             score = 2_000_000; // Prioridade absoluta
         }
-        // 2. Capturas (ordenadas por SEE + MVV-LVA com proteção contra sacrifícios)
+        // 2. Enhanced capture ordering with better tactical evaluation
         else if board.is_capture(mv) {
             let see_value = see(board, mv);
             let captured_piece_value = get_captured_piece_value(board, mv);
             let attacking_piece_value = get_attacking_piece_value(board, mv);
             
-            // Detecta sacrifícios arriscados (peça valiosa por peça menor)
-            let is_risky_sacrifice = attacking_piece_value > captured_piece_value + 200 && see_value < -50;
+            // Enhanced sacrifice detection with tactical context
+            let value_diff = attacking_piece_value - captured_piece_value;
+            let is_potential_sacrifice = value_diff > 150 && see_value < -75;
+            let is_queen_capture = captured_piece_value >= 900;
+            let is_promotion_capture = mv.promotion.is_some();
             
-            if see_value > 0 {
-                // Captura boa: SEE + MVV-LVA
-                score = 1_800_000 + see_value + (captured_piece_value * 10) - attacking_piece_value;
+            if see_value > 100 {
+                // Very good captures: high priority
+                score = 2_000_000 + see_value + (captured_piece_value * 12) - (attacking_piece_value / 2);
+            } else if see_value > 0 {
+                // Good captures: SEE + enhanced MVV-LVA
+                score = 1_900_000 + see_value + (captured_piece_value * 10) - attacking_piece_value;
             } else if see_value == 0 {
-                // Troca igual
-                score = 1_600_000 + captured_piece_value;
-            } else if see_value >= -100 && !is_risky_sacrifice {
-                // Captura ligeiramente ruim (ainda considerável se não for sacrifício arriscado)
-                score = 300_000 + see_value + captured_piece_value;
+                // Equal trades: prioritize by piece value
+                score = 1_700_000 + (captured_piece_value * 2);
+            } else if see_value >= -75 && (!is_potential_sacrifice || is_queen_capture || is_promotion_capture) {
+                // Slightly bad captures that might be tactical
+                score = 400_000 + see_value + captured_piece_value;
+                
+                // Bonus for potentially tactical captures
+                if is_queen_capture { score += 200_000; }
+                if is_promotion_capture { score += 150_000; }
             } else {
-                // Captura muito ruim ou sacrifício arriscado - baixa prioridade
-                score = 50_000 + see_value + captured_piece_value;
-                if is_risky_sacrifice {
-                    score -= 200_000; // Penalidade extra para sacrifícios arriscados
+                // Bad captures: very low priority but still consider
+                score = 80_000 + see_value + (captured_piece_value / 2);
+                
+                // Heavy penalty for clearly bad sacrifices
+                if is_potential_sacrifice && !is_queen_capture {
+                    score -= 150_000;
                 }
             }
         }
@@ -81,13 +93,20 @@ pub fn order_moves(
         else if is_defensive_move(board, mv) {
             score = 20_000;
         }
-        // 5. Movimentos que dão xeque
+        // 5. Enhanced check evaluation with tactical bonuses
         else if gives_check_heuristic(board, mv) {
-            if is_discovered_check(board, mv) {
-                score = 1_100_000; // Checks descobertos são perigosos
+            let base_check_score = if is_discovered_check(board, mv) {
+                1_200_000 // Discovered checks are very dangerous
             } else {
-                score = 1_000_000;
-            }
+                1_050_000 // Regular checks
+            };
+            
+            // Bonus for checks that also threaten material or create tactics
+            let mut check_bonus = 0;
+            if mv.promotion.is_some() { check_bonus += 100_000; } // Promotion check
+            if board.is_capture(mv) { check_bonus += 50_000; } // Capture check
+            
+            score = base_check_score + check_bonus;
         }
         // 6. Avaliação inteligente de movimentos de rei
         else if board.get_piece_on_square(mv.from) == Some(PieceKind::King) {

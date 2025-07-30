@@ -3,9 +3,11 @@ use crate::{board::Board, evaluation, transposition::TranspositionTable, types::
 use super::{SearchContext, order_moves, see::see};
 
 const MATE_VALUE: i32 = 99999;
-const SEE_THRESHOLD: i32 = -20; // Mais conservador para evitar sacrifícios ruins
+const SEE_THRESHOLD: i32 = -15; // Optimized threshold for better tactical play
+const DELTA_MARGIN: i32 = 900; // Reduced from 950 for more aggressive play
+const MAX_QUIESCENCE_PLY: i32 = 6; // Increased from 4 for deeper tactical search
 
-/// Quiescence Search - busca táticas até posição "quieta" 
+/// Enhanced Quiescence Search with improved tactical detection
 pub fn quiescence_search(
     board: &Board,
     mut alpha: i32,
@@ -13,7 +15,7 @@ pub fn quiescence_search(
     tt: &mut TranspositionTable,
     context: &mut SearchContext
 ) -> i32 {
-    quiescence_search_with_ply(board, alpha, beta, 0, 4, tt, context) // Aumentado para 4
+    quiescence_search_with_ply(board, alpha, beta, 0, MAX_QUIESCENCE_PLY, tt, context)
 }
 
 /// Quiescence search com limite de ply para prevenir recursão infinita
@@ -46,10 +48,15 @@ fn quiescence_search_with_ply(
         alpha = stand_pat;
     }
 
-    // Delta pruning - mais conservador para não perder táticas
-    // Exceção: não faz delta pruning em xeque
-    if !in_check && stand_pat + 950 < alpha {
-        return alpha;
+    // Enhanced Delta pruning with tactical awareness
+    // Exception: no delta pruning in check or when material imbalance is large
+    if !in_check && stand_pat + DELTA_MARGIN < alpha {
+        // Don't prune if there are hanging pieces that might be captured
+        let has_tactical_potential = has_hanging_pieces_quick(board) || 
+                                   has_discovered_attack_potential(board);
+        if !has_tactical_potential {
+            return alpha;
+        }
     }
 
     // Gera capturas e movimentos de xeque
@@ -77,19 +84,31 @@ fn quiescence_search_with_ply(
         }
     }
 
-    // Remove capturas obviamente perdedoras com SEE, exceto capturas de rainha
+    // Enhanced SEE filtering with tactical exceptions
     if !in_check {
         tactical_moves.retain(|&mv| {
             if board.is_capture(mv) {
-                // Sempre considerar capturas de rainha
-                if let Some(captured_piece) = board.get_piece_on_square(mv.to) {
-                    if captured_piece == crate::types::PieceKind::Queen {
-                        return true;
-                    }
+                let captured_value = get_captured_piece_value_quick(board, mv);
+                let see_value = see(board, mv);
+                
+                // Always consider high-value captures
+                if captured_value >= 500 { // Rook or Queen
+                    return true;
                 }
-                see(board, mv) >= SEE_THRESHOLD
+                
+                // Consider promotion captures
+                if mv.promotion.is_some() {
+                    return true;
+                }
+                
+                // Consider captures that might be part of tactical sequences
+                if see_value >= SEE_THRESHOLD || is_potential_tactical_capture(board, mv) {
+                    return true;
+                }
+                
+                false
             } else {
-                true // Keeps checks
+                true // Keep all checks
             }
         });
     }
@@ -179,6 +198,95 @@ pub fn gives_check_fast(board: &Board, mv: Move) -> bool {
         },
         _ => false, // Rei não dá xeque direto normalmente
     }
+}
+
+/// Quick check for hanging pieces without full SEE calculation
+fn has_hanging_pieces_quick(board: &Board) -> bool {
+    let enemy_color = !board.to_move;
+    let our_pieces = if board.to_move == Color::White { 
+        board.white_pieces 
+    } else { 
+        board.black_pieces 
+    };
+    
+    // Check valuable pieces under attack
+    let valuable_pieces = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
+    let mut bb = valuable_pieces;
+    
+    // Check up to 3 pieces for performance
+    for _ in 0..3 {
+        if bb == 0 { break; }
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+        
+        if board.is_square_attacked_by(sq, enemy_color) {
+            return true;
+        }
+    }
+    
+    false
+}
+
+/// Quick check for discovered attack potential
+fn has_discovered_attack_potential(board: &Board) -> bool {
+    let our_color = board.to_move;
+    let enemy_king_pos = if our_color == Color::White {
+        let enemy_kings = board.kings & board.black_pieces;
+        if enemy_kings == 0 { return false; }
+        enemy_kings.trailing_zeros() as u8
+    } else {
+        let enemy_kings = board.kings & board.white_pieces;
+        if enemy_kings == 0 { return false; }
+        enemy_kings.trailing_zeros() as u8
+    };
+    
+    // Quick check for sliding pieces that could create discovered attacks
+    let our_sliding = if our_color == Color::White {
+        (board.bishops | board.rooks | board.queens) & board.white_pieces
+    } else {
+        (board.bishops | board.rooks | board.queens) & board.black_pieces
+    };
+    
+    // Simple heuristic: if we have sliding pieces, there might be discovered attack potential
+    our_sliding.count_ones() >= 2
+}
+
+/// Quick piece value lookup for captures
+fn get_captured_piece_value_quick(board: &Board, mv: Move) -> i32 {
+    let target_bb = 1u64 << mv.to;
+    
+    if (target_bb & board.queens) != 0 { return 900; }
+    if (target_bb & board.rooks) != 0 { return 500; }
+    if (target_bb & board.bishops) != 0 { return 330; }
+    if (target_bb & board.knights) != 0 { return 320; }
+    if (target_bb & board.pawns) != 0 { return 100; }
+    
+    0
+}
+
+/// Check if capture might be part of tactical sequence
+fn is_potential_tactical_capture(board: &Board, mv: Move) -> bool {
+    // Captures that attack the enemy king area are often tactical
+    let enemy_color = !board.to_move;
+    let enemy_king_bb = board.kings & if enemy_color == Color::White {
+        board.white_pieces
+    } else {
+        board.black_pieces
+    };
+    
+    if enemy_king_bb == 0 { return false; }
+    
+    let enemy_king_sq = enemy_king_bb.trailing_zeros() as u8;
+    let king_rank = enemy_king_sq / 8;
+    let king_file = enemy_king_sq % 8;
+    let capture_rank = mv.to / 8;
+    let capture_file = mv.to % 8;
+    
+    // Capture near enemy king (within 2 squares) might be tactical
+    let rank_diff = (capture_rank as i8 - king_rank as i8).abs();
+    let file_diff = (capture_file as i8 - king_file as i8).abs();
+    
+    rank_diff <= 2 && file_diff <= 2
 }
 
 /// Versão alternativa de quiescence para uso em análise

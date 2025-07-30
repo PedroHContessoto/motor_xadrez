@@ -3,18 +3,19 @@ use crate::{board::Board, evaluation, transposition::{TranspositionTable, EntryT
 use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::see_threshold};
 
 const MATE_VALUE: i32 = 99999;
-const FUTILITY_MARGIN: [i32; 10] = [0, 150, 300, 450, 650, 850, 1100, 1350, 1600, 1900];
-const REVERSE_FUTILITY_MARGIN: [i32; 10] = [0, 80, 160, 280, 420, 580, 760, 960, 1180, 1420];
-const LMP_MARGIN: [usize; 10] = [0, 3, 6, 12, 18, 24, 30, 36, 42, 48]; // Late Move Pruning - more aggressive
+// Optimized search constants for better tactical play
+const FUTILITY_MARGIN: [i32; 10] = [0, 120, 250, 380, 520, 680, 850, 1040, 1250, 1480];
+const REVERSE_FUTILITY_MARGIN: [i32; 10] = [0, 70, 140, 230, 340, 470, 620, 790, 980, 1190];
+const LMP_MARGIN: [usize; 10] = [0, 2, 4, 8, 14, 20, 26, 32, 38, 44]; // More conservative
 const LMR_MIN_DEPTH: u8 = 2;
-const LMR_MIN_MOVES: usize = 2; // Reduzido de 3 para 2
-const NMP_MIN_DEPTH: u8 = 3; // Null Move Pruning
+const LMR_MIN_MOVES: usize = 1; // More aggressive reduction 
+const NMP_MIN_DEPTH: u8 = 3;
 const NMP_REDUCTION: u8 = 3;
-const PROBCUT_DEPTH: u8 = 4; // Reduzido de 5 para 4
-const PROBCUT_MARGIN: i32 = 150; // Reduzido de 200 para 150
-const IID_MIN_DEPTH: u8 = 4; // Internal Iterative Deepening
-const SINGULAR_EXTENSION_DEPTH: u8 = 8; // Aumentado de 6 para 8
-const ASPIRATION_WINDOW: i32 = 15; // Reduzido de 25 para 15
+const PROBCUT_DEPTH: u8 = 5; // Increased back to 5
+const PROBCUT_MARGIN: i32 = 120; // Further reduced
+const IID_MIN_DEPTH: u8 = 5; // Increased for better hash moves
+const SINGULAR_EXTENSION_DEPTH: u8 = 6; // Optimized depth
+const ASPIRATION_WINDOW: i32 = 18; // Slightly increased for stability
 
 /// Principal Variation Search com melhorias para táticas
 pub fn pvs_search(
@@ -46,8 +47,8 @@ fn pvs_search_internal(
 ) -> i32 {
     context.nodes_searched += 1;
 
-    // Check time menos frequentemente para melhor performance
-    if context.nodes_searched & 4095 == 0 {
+    // Optimized time checking - check every 2048 nodes instead of 4096
+    if context.nodes_searched & 2047 == 0 {
         if start_time.elapsed().as_millis() as u64 > max_time_ms {
             context.should_stop = true;
             return 0;
@@ -67,7 +68,16 @@ fn pvs_search_internal(
     let mut tt_move: Option<Move> = None;
 
     if let Some(entry) = tt.probe(board.zobrist_hash) {
-        tt_move = entry.best_move;
+        // Enhanced hash move verification
+        if let Some(mv) = entry.best_move {
+            if board.is_legal_move(mv) {
+                tt_move = Some(mv);
+            } else {
+                // Hash move is illegal, clear it
+                tt_move = None;
+            }
+        }
+        
         if entry.depth >= depth && !is_pv_node {
             match entry.entry_type {
                 EntryType::Exact => return entry.score,
@@ -198,19 +208,34 @@ fn pvs_search_internal(
     let mut moves_searched = 0;
     let mut tried_moves = Vec::with_capacity(ordered_moves.len());
 
-    // Multi-cut pruning melhorado
-    if !is_pv_node && depth >= 8 {
+    // Enhanced Multi-cut pruning with better tactical awareness
+    if !is_pv_node && depth >= 7 && !in_check {
         let mut cut_count = 0;
-        const MC_MOVES: usize = 3; // Testar apenas 3 primeiros
-        const MC_CUTS_NEEDED: usize = 2; // Precisamos 2 cortes
+        const MC_MOVES: usize = 4; // Test more moves for better coverage
+        const MC_CUTS_NEEDED: usize = 2; // Still need 2 cuts
         
-        for (i, mv) in ordered_moves.iter().take(MC_MOVES).enumerate() {
+        // Only test non-losing captures and good tactical moves
+        let mut test_moves = Vec::new();
+        for mv in ordered_moves.iter().take(MC_MOVES * 2) {
+            if board.is_capture(*mv) {
+                let see_val = super::see::see(board, *mv);
+                if see_val >= -50 { // Don't test very bad captures
+                    test_moves.push(*mv);
+                }
+            } else if gives_check_fast(board, *mv) {
+                test_moves.push(*mv);
+            }
+            if test_moves.len() >= MC_MOVES { break; }
+        }
+        
+        for mv in test_moves.iter() {
             let temp_board = board.make_move_copy(*mv);
             
-            // Busca reduzida
+            // Reduced depth search with better reduction formula
+            let reduction = 2 + (depth / 8);
             let score = -pvs_search_internal(
                 &temp_board, 
-                depth - 1 - 2, // Redução extra
+                depth.saturating_sub(1 + reduction),
                 -beta, 
                 -beta + 1,
                 tt, context, start_time, max_time_ms, false, ply + 1
@@ -219,7 +244,7 @@ fn pvs_search_internal(
             if score >= beta {
                 cut_count += 1;
                 if cut_count >= MC_CUTS_NEEDED {
-                    return beta; // Multi-cut
+                    return beta; // Multi-cut confirmed
                 }
             }
         }
@@ -243,12 +268,16 @@ fn pvs_search_internal(
         let gives_check = temp_board.is_king_in_check(!board.to_move);
         let is_capture = board.is_capture(*mv);
 
-        // Extended Futility Pruning (melhorada)
-        if depth <= 6 && !is_pv_node && !in_check && !gives_check && moves_searched > 0 {
-            let futility_value = static_eval + FUTILITY_MARGIN[depth as usize];
+        // Enhanced Extended Futility Pruning with tactical awareness
+        if depth <= 7 && !is_pv_node && !in_check && !gives_check && moves_searched > 0 {
+            let futility_value = static_eval + FUTILITY_MARGIN[depth.min(9) as usize];
             if futility_value <= alpha && !is_capture && mv.promotion.is_none() {
-                // Exceção para movimentos que podem melhorar a posição significativamente
-                if !is_killer_or_counter_move(*mv, context, depth) {
+                // Exception for potentially strong moves
+                let is_important_move = is_killer_or_counter_move(*mv, context, depth) ||
+                                      is_escaping_move(board, *mv) ||
+                                      is_defensive_move_simple(board, *mv);
+                
+                if !is_important_move {
                     moves_searched += 1;
                     context.pop_move();
                     continue;
@@ -256,22 +285,32 @@ fn pvs_search_internal(
             }
         }
 
-        // Late Move Pruning menos agressivo para evitar perder táticas
-        if depth <= 6 && !is_pv_node && !in_check && !gives_check && !is_capture 
+        // Improved Late Move Pruning with dynamic thresholds
+        if depth <= 8 && !is_pv_node && !in_check && !gives_check && !is_capture 
             && mv.promotion.is_none() && moves_searched > 0 {
             
-            // Fórmula menos agressiva para evitar perder movimentos táticos importantes
-            let lmp_threshold = match depth {
-                1 => 4,
-                2 => 8, 
-                3 => 12,
-                4 => 20,
-                5 => 30,
-                6 => 40,
-                _ => 50,
+            // Dynamic threshold based on position complexity and node type
+            let base_threshold = match depth {
+                1 => 3,
+                2 => 6, 
+                3 => 10,
+                4 => 16,
+                5 => 24,
+                6 => 32,
+                7 => 40,
+                8 => 48,
+                _ => 56,
             };
             
-            if moves_searched >= lmp_threshold {
+            // Adjust threshold based on position complexity
+            let complexity_factor = if is_tactical_position(board) { 1.5 } else { 1.0 };
+            let adjusted_threshold = (base_threshold as f32 * complexity_factor) as usize;
+            
+            // Don't prune important quiet moves
+            let is_important_quiet = is_killer_or_counter_move(*mv, context, depth) ||
+                                   context.get_history_score(*mv, board.get_piece_on_square(mv.from).unwrap_or(crate::types::PieceKind::Pawn)) > 500;
+            
+            if moves_searched >= adjusted_threshold && !is_important_quiet {
                 moves_searched += 1;
                 context.pop_move();
                 continue;
@@ -288,11 +327,55 @@ fn pvs_search_internal(
             }
         }
 
-        // Extensions
+        // Enhanced extensions with singular extension
         let mut extension = 0;
+        
+        // Check extension
         if gives_check { extension += 1; }
+        
+        // Promotion extension
         if mv.promotion.is_some() { extension += 1; }
+        
+        // Recapture extension
         if is_recapture(board, *mv, context) { extension += 1; }
+        
+        // Singular extension for hash moves at sufficient depth
+        if depth >= SINGULAR_EXTENSION_DEPTH && Some(*mv) == tt_move && moves_searched == 0 {
+            if let Some(entry) = tt.probe(board.zobrist_hash) {
+                if entry.depth >= depth - 3 && entry.entry_type == EntryType::LowerBound {
+                    // Test if this move is "singular" (much better than alternatives)
+                    let singular_beta = entry.score - (depth as i32 * 2);
+                    let singular_depth = (depth / 2).max(1);
+                    
+                    // Search all other moves with reduced depth
+                    let other_moves: Vec<Move> = ordered_moves.iter()
+                        .filter(|&&m| m != *mv)
+                        .take(6) // Test only first 6 alternatives
+                        .cloned()
+                        .collect();
+                    
+                    let mut is_singular = true;
+                    for other_mv in other_moves {
+                        let other_board = board.make_move_copy(other_mv);
+                        let other_score = -pvs_search_internal(
+                            &other_board, singular_depth, -singular_beta - 1, -singular_beta,
+                            tt, context, start_time, max_time_ms, false, ply + 1
+                        );
+                        
+                        if other_score > singular_beta {
+                            is_singular = false;
+                            break;
+                        }
+                    }
+                    
+                    if is_singular {
+                        extension += 1; // Singular extension
+                    }
+                }
+            }
+        }
+        
+        // Limit total extensions
         extension = extension.min(2);
 
         let mut score;
@@ -514,4 +597,37 @@ fn has_hanging_pieces_simple(board: &Board) -> bool {
 fn is_escaping_move(board: &Board, mv: Move) -> bool {
     // Verifica se a casa de origem está sendo atacada
     board.is_square_attacked_by(mv.from, !board.to_move)
+}
+
+/// Simple defensive move detection for pruning decisions
+fn is_defensive_move_simple(board: &Board, mv: Move) -> bool {
+    // Quick check if move defends an attacked valuable piece
+    let our_pieces = if board.to_move == crate::types::Color::White {
+        board.white_pieces
+    } else {
+        board.black_pieces
+    };
+    
+    let valuable_pieces = (board.knights | board.bishops | board.rooks | board.queens) & our_pieces;
+    let mut bb = valuable_pieces;
+    
+    // Check up to 3 valuable pieces for performance
+    for _ in 0..3 {
+        if bb == 0 { break; }
+        let sq = bb.trailing_zeros() as u8;
+        bb &= bb - 1;
+        
+        if board.is_square_attacked_by(sq, !board.to_move) {
+            // Check if this move helps defend the piece
+            let file_diff = (mv.to % 8) as i8 - (sq % 8) as i8;
+            let rank_diff = (mv.to / 8) as i8 - (sq / 8) as i8;
+            
+            // Simple heuristic: move is near the attacked piece
+            if file_diff.abs() <= 2 && rank_diff.abs() <= 2 {
+                return true;
+            }
+        }
+    }
+    
+    false
 }
