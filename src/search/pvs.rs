@@ -389,7 +389,8 @@ fn pvs_search_internal(
                     3 => base_reduction = base_reduction.saturating_sub(2), // Posição muito tática
                     2 => base_reduction = base_reduction.saturating_sub(1), // Posição tática
                     0 => base_reduction += 1, // Posição muito calma
-                    _ => {} // Posição normal
+                    1 => base_reduction = base_reduction.saturating_sub(2), // POSIÇÃO NORMAL - tratada como crítica (PROBLEMA NA NORMAL)
+                    _ => {} // Outros casos
                 }
                 
                 // 5. Ajuste para peças específicas
