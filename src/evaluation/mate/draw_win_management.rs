@@ -23,8 +23,8 @@ impl DrawDecisionContext {
         DrawDecisionContext {
             evaluation,
             material_advantage: material_eval.white_material - material_eval.black_material,
-            winning_threshold: 150,  // +1.5 pawns para considerar posição ganhadora
-            losing_threshold: -150,  // -1.5 pawns para considerar posição perdedora
+            winning_threshold: 350,  // +3.5 pawns para considerar posição ganhadora
+            losing_threshold: -350,  // -3.5 pawns para considerar posição perdedora
             move_count: (board.halfmove_clock / 2) + 1,
             endgame_type,
         }
@@ -49,7 +49,7 @@ pub struct DrawWinManager {
 impl DrawWinManager {
     pub fn new() -> Self {
         DrawWinManager {
-            contempt_factor: 20,  // Valor base de desprezo por empate
+            contempt_factor: 80,  // Valor base de desprezo por empate (aumentado)
             dynamic_contempt: true,
             endgame_knowledge: EndgameKnowledge::new(),
         }
@@ -91,7 +91,7 @@ impl DrawWinManager {
         if endgame.is_theoretical_win() {
             // Continua jogando para a vitória
             return DrawDecision::AvoidDraw {
-                contempt: self.contempt_factor * 3,  // Triplo desprezo
+                contempt: self.contempt_factor * 5,  // Máximo desprezo por empate
                 prefer_complexity: true,
             };
         }
@@ -99,15 +99,15 @@ impl DrawWinManager {
         // Se material é suficiente para ganhar
         if material.can_force_win() {
             return DrawDecision::AvoidDraw {
-                contempt: self.contempt_factor * 2,
+                contempt: self.contempt_factor * 4,  // Quádruplo desprezo
                 prefer_complexity: false,
             };
         }
 
-        // Posição ganhadora mas precisa cuidado
-        DrawDecision::PlayForWin {
-            risk_tolerance: 0.3,  // Baixa tolerância a risco
-            time_pressure_factor: 1.5,  // Mais tempo para converter
+        // Posição ganhadora mas precisa cuidado - ainda evita empate!
+        DrawDecision::AvoidDraw {
+            contempt: self.contempt_factor * 2,  // Duplo desprezo mesmo em posições complexas
+            prefer_complexity: false,
         }
     }
 
@@ -507,8 +507,8 @@ impl DrawWinManager {
                 (alpha + contempt, beta)
             },
             DrawDecision::ForceDraw { .. } => {
-                // Janela em torno de 0 para aceitar empates
-                (-50, 50)
+                // Janela mais ampla para não forçar empates prematuros
+                (-150, 150)
             },
             _ => (alpha, beta),
         }

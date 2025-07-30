@@ -84,8 +84,8 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
     
     // === SISTEMA DE CONVERSÃO DE VITÓRIA ===
     let mut victory_system = VictoryConversionSystem::new();
-    let mut winning_plan = if initial_eval > 150 {
-        // Posição ganhadora - cria plano de conversão
+    let mut winning_plan = if initial_eval > 350 {
+        // Posição ganhadora (3.5+ peões) - cria plano de conversão
         Some(profile!("victory_plan_creation", {
             victory_system.evaluate_winning_plan(board, initial_eval)
         }))
