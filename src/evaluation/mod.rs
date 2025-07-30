@@ -13,6 +13,7 @@ mod utils;
 mod endgame_patterns;
 
 use crate::{board::Board, types::Color};
+use crate::lazy_eval::get_lazy_eval_manager;
 use cache::EvaluationCache;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};

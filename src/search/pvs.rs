@@ -1,6 +1,7 @@
 use std::time::Instant;
 use crate::{board::Board, evaluation, transposition::{TranspositionTable, EntryType}, types::Move};
 use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::see_threshold};
+use crate::intrinsics::{likely, unlikely, prefetch_read, CacheAlignedData};
 
 const MATE_VALUE: i32 = 99999;
 // Optimized search constants for better tactical play
@@ -47,9 +48,9 @@ fn pvs_search_internal(
 ) -> i32 {
     context.nodes_searched += 1;
 
-    // Optimized time checking - check every 2048 nodes instead of 4096
-    if context.nodes_searched & 2047 == 0 {
-        if start_time.elapsed().as_millis() as u64 > max_time_ms {
+    // CPU-optimized time checking with branch prediction
+    if unlikely(context.nodes_searched & 2047 == 0) {
+        if unlikely(start_time.elapsed().as_millis() as u64 > max_time_ms) {
             context.should_stop = true;
             return 0;
         }
@@ -67,10 +68,15 @@ fn pvs_search_internal(
     let original_alpha = alpha;
     let mut tt_move: Option<Move> = None;
 
+    // Cache-optimized transposition table lookup with prefetching
     if let Some(entry) = tt.probe(board.zobrist_hash) {
-        // Enhanced hash move verification
+        // Prefetch next likely TT entry for better cache performance
+        let next_hash = board.zobrist_hash.wrapping_add(1);
+        prefetch_read(&next_hash as *const u64);
+        
+        // Enhanced hash move verification with branch prediction
         if let Some(mv) = entry.best_move {
-            if board.is_legal_move(mv) {
+            if likely(board.is_legal_move(mv)) {
                 tt_move = Some(mv);
             } else {
                 // Hash move is illegal, clear it
@@ -78,13 +84,13 @@ fn pvs_search_internal(
             }
         }
         
-        if entry.depth >= depth && !is_pv_node {
+        if likely(entry.depth >= depth && !is_pv_node) {
             match entry.entry_type {
                 EntryType::Exact => return entry.score,
                 EntryType::LowerBound => alpha = alpha.max(entry.score),
                 EntryType::UpperBound => beta = beta.min(entry.score),
             }
-            if alpha >= beta {
+            if likely(alpha >= beta) {
                 return entry.score;
             }
         }
@@ -112,8 +118,8 @@ fn pvs_search_internal(
     let in_check = board.is_king_in_check(board.to_move);
     let static_eval = if !in_check { evaluation::evaluate(board) } else { -MATE_VALUE / 2 };
     
-    // Null Move Pruning - poda muito eficaz para ganhar profundidade
-    if !is_pv_node && !in_check && depth >= NMP_MIN_DEPTH && static_eval >= beta {
+    // CPU-optimized Null Move Pruning with branch prediction
+    if likely(!is_pv_node && !in_check && depth >= NMP_MIN_DEPTH && static_eval >= beta) {
         let mut null_board = *board;
         null_board.to_move = !null_board.to_move;
         null_board.en_passant_target = None;

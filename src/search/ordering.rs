@@ -8,7 +8,7 @@ const PIECE_VALUES: [i32; 6] = [100, 320, 330, 500, 900, 20000];
 pub fn order_moves(
     board: &Board,
     moves: Vec<Move>,
-    tt: &TranspositionTable,
+    tt: &mut TranspositionTable,
     context: &SearchContext,
     depth: u8
 ) -> Vec<Move> {
@@ -355,7 +355,7 @@ fn was_attacking_valuable_piece(board: &Board, captured_sq: u8, valuable_sq: u8,
 pub fn order_tactical_moves(
     board: &Board,
     moves: Vec<Move>,
-    tt: &TranspositionTable,
+    tt: &mut TranspositionTable,
     _context: &SearchContext
 ) -> Vec<Move> {
     let tt_move = if let Some(entry) = tt.probe(board.zobrist_hash) {

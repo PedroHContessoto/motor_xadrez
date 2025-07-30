@@ -9,6 +9,7 @@ pub mod search;
 pub mod transposition;
 pub mod opening_book;
 pub mod intrinsics;
+pub mod lazy_eval;
 
 pub use types::*;
 pub use board::Board;

@@ -336,7 +336,8 @@ impl TimeManager {
 }
 
 fn main() {
-    // Inicializa as dependências do motor
+    // Inicializa as dependências do motor com otimizações de CPU
+    motor_xadrez::intrinsics::init_intrinsics();
     motor_xadrez::evaluation::pawn_structure::init_pawn_masks();
     motor_xadrez::moves::magic_bitboards::init_magic_bitboards();
     let mut board = Board::new();
