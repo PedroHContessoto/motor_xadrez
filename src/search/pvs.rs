@@ -318,9 +318,24 @@ fn pvs_search_internal(
             extension_candidates.push(("promotion", 1));
         }
         
-        // 5. PRIORIDADE BAIXA: Recapturas
+        // 5. EXTENSÕES TÁTICAS AVANÇADAS
         if is_recapture(board, *mv, context) {
-            extension_candidates.push(("recapture", 1));
+            extension_candidates.push(("recapture", 2)); // Aumentado
+        }
+        
+        // 6. CAPTURAS TÁTICAS COM SEE POSITIVO
+        if is_capture && crate::search::see::see(board, *mv) >= 0 && ply <= 25 {
+            extension_candidates.push(("tactical_capture", 2));
+        }
+        
+        // 7. DISCOVERED ATTACKS - usando função existente de threats.rs
+        if creates_discovered_attack_potential(board, *mv) && ply <= 20 {
+            extension_candidates.push(("discovered_attack", 3));
+        }
+        
+        // 8. FORKS E PINS - usando avaliação tática existente
+        if creates_tactical_threat(board, *mv) && ply <= 20 {
+            extension_candidates.push(("tactical_threat", 2));
         }
         
         // Escolhe a extensão de maior prioridade que cabe no orçamento
@@ -1479,4 +1494,94 @@ fn evaluate_multicut_pruning_enhanced(
     }
     
     cutoff_count
+}
+
+/// Detecta potencial de discovered attack usando sistema existente
+fn creates_discovered_attack_potential(board: &Board, mv: Move) -> bool {
+    let our_color = board.to_move;
+    let our_pieces = if our_color == crate::types::Color::White { 
+        board.white_pieces 
+    } else { 
+        board.black_pieces 
+    };
+    let enemy_pieces = if our_color == crate::types::Color::White { 
+        board.black_pieces 
+    } else { 
+        board.white_pieces 
+    };
+    
+    // Verifica se há peças de longo alcance nossas que podem ser "descobertas"
+    let our_sliders = (board.rooks | board.queens | board.bishops) & our_pieces;
+    
+    // Simplificado: verifica se movimento pode revelar ataque de slider
+    let enemy_valuable = (board.queens | board.rooks) & enemy_pieces;
+    
+    // Se a peça que se move está entre um slider nosso e peça valiosa inimiga
+    our_sliders != 0 && enemy_valuable != 0 && is_potentially_blocking(mv.from, our_sliders, enemy_valuable)
+}
+
+/// Detecta se movimento cria ameaça tática (fork, pin, etc.)
+fn creates_tactical_threat(board: &Board, mv: Move) -> bool {
+    // Faz movimento temporariamente para verificar ameaças
+    let mut test_board = *board;
+    let _undo = test_board.make_move_fast(mv);
+    
+    let our_color = board.to_move;
+    let enemy_pieces = if our_color == crate::types::Color::White {
+        test_board.black_pieces
+    } else {
+        test_board.white_pieces
+    };
+    
+    // Conta peças valiosas inimigas atacadas após movimento
+    let enemy_valuable = (test_board.queens | test_board.rooks | test_board.knights | test_board.bishops) & enemy_pieces;
+    let attacked_count = count_attacked_pieces_simple(&test_board, enemy_valuable, our_color);
+    
+    // Considera tático se ataca 2+ peças valiosas (fork) ou 1+ peça muito valiosa
+    attacked_count >= 2 || attacks_queen_or_rook(&test_board, enemy_pieces, our_color)
+}
+
+// Funções auxiliares simplificadas
+fn is_potentially_blocking(square: u8, our_sliders: u64, enemy_valuable: u64) -> bool {
+    // Simplificação: verifica se está em linha potencial
+    let file = square % 8;
+    let rank = square / 8;
+    
+    // Verifica se há slider na mesma linha/coluna/diagonal
+    let file_mask = 0x0101010101010101u64 << file;
+    let rank_mask = 0xFFu64 << (rank * 8);
+    
+    (our_sliders & (file_mask | rank_mask)) != 0 && (enemy_valuable & (file_mask | rank_mask)) != 0
+}
+
+fn count_attacked_pieces_simple(board: &Board, pieces: u64, attacking_color: crate::types::Color) -> i32 {
+    let mut count = 0;
+    let mut remaining = pieces;
+    
+    while remaining != 0 {
+        let sq = remaining.trailing_zeros() as u8;
+        remaining &= remaining - 1;
+        
+        if board.is_square_attacked_by(sq, attacking_color) {
+            count += 1;
+        }
+    }
+    
+    count
+}
+
+fn attacks_queen_or_rook(board: &Board, enemy_pieces: u64, our_color: crate::types::Color) -> bool {
+    let enemy_major = (board.queens | board.rooks) & enemy_pieces;
+    let mut remaining = enemy_major;
+    
+    while remaining != 0 {
+        let sq = remaining.trailing_zeros() as u8;
+        remaining &= remaining - 1;
+        
+        if board.is_square_attacked_by(sq, our_color) {
+            return true;
+        }
+    }
+    
+    false
 }
