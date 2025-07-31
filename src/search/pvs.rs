@@ -305,35 +305,35 @@ fn pvs_search_internal(
         // }
         
         // 3.5. PRIORIDADE ALTA: Posições próximas de mate (nova)
-        let static_eval = crate::evaluation::evaluate_with_depth(board, depth);
-        if static_eval.abs() > 8000 && ply <= 18 {
-            extension_candidates.push(("near_mate", 1));
-        }
+        // let static_eval = crate::evaluation::evaluate_with_depth(board, depth);
+        // if static_eval.abs() > 8000 && ply <= 18 {
+        //     extension_candidates.push(("near_mate", 1));
+        // }
         
         // 4. PRIORIDADE MÉDIA: Promoções
-        if mv.promotion.is_some() {
-            extension_candidates.push(("promotion", 1));
-        }
+        // if mv.promotion.is_some() {
+        //     extension_candidates.push(("promotion", 1));
+        // }
         
         // 5. EXTENSÕES TÁTICAS AVANÇADAS
-        if is_recapture(board, *mv, context) {
-            extension_candidates.push(("recapture", 2)); // Aumentado
-        }
+        // if is_recapture(board, *mv, context) {
+        //     extension_candidates.push(("recapture", 2)); // Aumentado
+        // }
         
         // 6. CAPTURAS TÁTICAS COM SEE POSITIVO
-        if is_capture && crate::search::see::see(board, *mv) >= 0 && ply <= 25 {
-            extension_candidates.push(("tactical_capture", 2));
-        }
+        // if is_capture && crate::search::see::see(board, *mv) >= 0 && ply <= 25 {
+        //     extension_candidates.push(("tactical_capture", 2));
+        // }
         
         // 7. DISCOVERED ATTACKS - usando função existente de threats.rs
-        if creates_discovered_attack_potential(board, *mv) && ply <= 20 {
-            extension_candidates.push(("discovered_attack", 3));
-        }
-        
+        // if creates_discovered_attack_potential(board, *mv) && ply <= 20 {
+        //     extension_candidates.push(("discovered_attack", 3));
+        // }
+        //
         // 8. FORKS E PINS - usando avaliação tática existente
-        if creates_tactical_threat(board, *mv) && ply <= 20 {
-            extension_candidates.push(("tactical_threat", 2));
-        }
+        // if creates_tactical_threat(board, *mv) && ply <= 20 {
+        //     extension_candidates.push(("tactical_threat", 2));
+        // }
         
         // Escolhe a extensão de maior prioridade que cabe no orçamento
         let mut extension = 0i32;
