@@ -277,26 +277,32 @@ fn pvs_search_internal(
         // === SISTEMA DE EXTENSÕES COM ORÇAMENTO CONTROLADO ===
         
         // Define orçamento máximo baseado na profundidade atual
-        // DRASTICAMENTE LIMITADO PARA DEBUG
-        let extension_budget = 0; // SEM EXTENSÕES PARA DEBUG
+        // REINTRODUZINDO EXTENSÕES GRADUALMENTE - ORÇAMENTO MÍNIMO
+        let extension_budget = if ply > 30 {
+            0 // Sem extensões em PLY muito alto
+        } else {
+            1 // Orçamento mínimo e seguro
+        };
         
         // Calcula extensões por prioridade (não acumula, escolhe a melhor)
         let mut extension_candidates = Vec::new();
         
-        // 1. PRIORIDADE MÁXIMA: Ameaças de mate relaxadas (conforme análise)
-        if gives_check && (in_check || depth <= 3) && ply <= 15 {
-            extension_candidates.push(("mate_threat", 2));
-        }
-        
-        // 2. PRIORIDADE ALTA: TT move singular
-        if Some(*mv) == tt_move && singular_extension > 0 {
-            extension_candidates.push(("singular", singular_extension as i32));
-        }
-        
-        // 3. PRIORIDADE ALTA: Checks básicos (relaxados)
-        if gives_check && ply <= 20 {
+        // REINTRODUZINDO EXTENSÕES UMA POR VEZ
+        // PRIMEIRA EXTENSÃO: Check extension básica (mais segura)
+        if gives_check && ply <= 25 {
             extension_candidates.push(("check", 1));
         }
+        
+        // DESABILITADAS TEMPORARIAMENTE - REINTRODUZIR GRADUALMENTE:
+        // // 1. PRIORIDADE MÁXIMA: Ameaças de mate relaxadas (conforme análise)
+        // if gives_check && (in_check || depth <= 3) && ply <= 15 {
+        //     extension_candidates.push(("mate_threat", 2));
+        // }
+        // 
+        // // 2. PRIORIDADE ALTA: TT move singular
+        // if Some(*mv) == tt_move && singular_extension > 0 {
+        //     extension_candidates.push(("singular", singular_extension as i32));
+        // }
         
         // 3.5. PRIORIDADE ALTA: Posições próximas de mate (nova)
         let static_eval = crate::evaluation::evaluate_with_depth(board, depth);

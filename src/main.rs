@@ -353,8 +353,19 @@ fn handle_position_command(board: &mut Board, commands: &[&str], tt: &mut Transp
     let mut moves_count = 0u16;
 
     if commands.get(1) == Some(&"startpos") {
-        // DETECTA NOVA PARTIDA - limpa tudo!
-        reset_engine_between_games(tt);
+        // Só limpa se for realmente uma nova partida (sem muitos lances)
+        let is_new_game = if commands.get(2) == Some(&"moves") {
+            // Conta quantos lances há após "moves"
+            let moves_count = commands.iter().skip(3).count();
+            moves_count <= 2 // Considera nova partida se <= 2 lances
+        } else {
+            true // Sem moves = nova partida
+        };
+        
+        if is_new_game {
+            reset_engine_between_games(tt);
+        }
+        
         *board = Board::new();
         move_start_index = 2;
     } else if commands.get(1) == Some(&"fen") {
