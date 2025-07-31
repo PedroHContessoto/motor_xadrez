@@ -305,4 +305,40 @@ impl SearchContext {
         !self.null_move_stack.is_empty()
     }
 
+    /// Reset completo entre partidas - limpa toda memória do motor
+    pub fn reset_between_games(&mut self) {
+        println!("info string SearchContext memory cleared");
+        
+        // Limpa killer moves
+        self.killer_moves = [[None; 2]; 64];
+        
+        // Limpa history table (importante!)
+        self.history = [[[0; 64]; 64]; 6];
+        
+        // Limpa counter moves
+        self.counter_moves = [[None; 64]; 64];
+        
+        // Reset counters
+        self.nodes_searched = 0;
+        self.prev_best_move = None;
+        self.should_stop = false;
+        
+        // Limpa stack de movimentos
+        self.last_moves.clear();
+        
+        // Limpa PV
+        self.pv_table = [[None; 64]; 64];
+        self.pv_length = [0; 64];
+        
+        // Reset depth tracking
+        self.current_depth = 0;
+        self.current_move_number = 0;
+        self.total_moves_at_depth = 0;
+        
+        // Limpa null move tracking
+        self.null_move_stack.clear();
+        self.threat_detected_recently = false;
+        self.threat_detection_ply = 0;
+    }
+
 }

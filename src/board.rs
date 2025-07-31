@@ -660,14 +660,14 @@ impl Board {
         let _timer = crate::profiling::PROFILER.start_timer("generate_legal_moves");
         count!("legal_move_calls");
         
-        // Verifica cache primeiro com otimização
-        if let Ok(cache) = LEGAL_MOVES_CACHE.try_lock() {
-            if let Some(cached_moves) = cache.get(&self.zobrist_hash) {
-                count!("legal_moves_cache_hits");
-                // Clone otimizado apenas quando necessário
-                return cached_moves.clone();
-            }
-        }
+        // CACHE TEMPORARIAMENTE DESABILITADO PARA DEBUG
+        // if let Ok(cache) = LEGAL_MOVES_CACHE.try_lock() {
+        //     if let Some(cached_moves) = cache.get(&self.zobrist_hash) {
+        //         count!("legal_moves_cache_hits");
+        //         // Clone otimizado apenas quando necessário
+        //         return cached_moves.clone();
+        //     }
+        // }
         count!("legal_moves_cache_misses");
         
         let pseudo_legal = profile!("generate_pseudo_legal", {
@@ -682,20 +682,20 @@ impl Board {
         });
         count!("final_legal_moves", legal_moves.len() as u64);
         
-        // Armazena no cache com estratégia LRU melhorada
-        if let Ok(mut cache) = LEGAL_MOVES_CACHE.try_lock() {
-            // Só cacheia se temos movimentos legais válidos (evita posições ilegais)
-            if !legal_moves.is_empty() {
-                if cache.len() >= 10000 { // Aumentado de 3000 para 10000
-                    // Remove apenas 25% das entradas mais antigas ao invés de limpar tudo
-                    let keys_to_remove: Vec<_> = cache.keys().take(cache.len() / 4).cloned().collect();
-                    for key in keys_to_remove {
-                        cache.remove(&key);
-                    }
-                }
-                cache.insert(self.zobrist_hash, legal_moves.clone());
-            }
-        }
+        // CACHE DE ARMAZENAMENTO TEMPORARIAMENTE DESABILITADO PARA DEBUG
+        // if let Ok(mut cache) = LEGAL_MOVES_CACHE.try_lock() {
+        //     // Só cacheia se temos movimentos legais válidos (evita posições ilegais)
+        //     if !legal_moves.is_empty() {
+        //         if cache.len() >= 10000 { // Aumentado de 3000 para 10000
+        //             // Remove apenas 25% das entradas mais antigas ao invés de limpar tudo
+        //             let keys_to_remove: Vec<_> = cache.keys().take(cache.len() / 4).cloned().collect();
+        //             for key in keys_to_remove {
+        //                 cache.remove(&key);
+        //             }
+        //         }
+        //         cache.insert(self.zobrist_hash, legal_moves.clone());
+        //     }
+        // }
         
         legal_moves
     }

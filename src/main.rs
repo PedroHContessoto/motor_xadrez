@@ -281,7 +281,7 @@ fn main() {
                     println!("readyok");
                 }
                 "position" => {
-                    moves_played = handle_position_command(&mut board, &commands);
+                    moves_played = handle_position_command(&mut board, &commands, &mut tt);
                 }
                 "go" => {
                     handle_go_command(&board, &mut tt, &opening_book, use_opening_book, &commands, moves_played);
@@ -306,6 +306,22 @@ fn main() {
                 "cache" => {
                     handle_cache_command(&commands);
                 }
+                "debug" => {
+                    handle_debug_command(&commands, &tt);
+                }
+                "status" => {
+                    handle_status_command(&tt);
+                }
+                "reset" => {
+                    // Comando para resetar motor manualmente
+                    reset_engine_between_games(&mut tt);
+                    println!("info string Engine reset completed");
+                }
+                "ucinewgame" => {
+                    // Comando UCI padrão para nova partida
+                    reset_engine_between_games(&mut tt);
+                    println!("info string New game started");
+                }
                 _ => {
                     // Ignora comandos desconhecidos
                 }
@@ -314,12 +330,31 @@ fn main() {
     }
 }
 
+/// Limpa todos os caches e memória do motor entre partidas
+fn reset_engine_between_games(tt: &mut TranspositionTable) {
+    println!("info string MotorXadrez: Resetting engine memory for new game...");
+    
+    // 1. Limpa Transposition Table
+    tt.reset_between_games();
+    
+    // 2. Limpa cache de mobilidade
+    motor_xadrez::evaluation::mobility::reset_mobility_cache();
+    
+    // 3. Limpa cache de avaliação (se existir)
+    motor_xadrez::evaluation::cache::clear_evaluation_cache();
+    println!("info string Evaluation cache cleared");
+    
+    println!("info string MotorXadrez: Engine memory cleared successfully");
+}
+
 /// Processa o comando "position" e retorna o número de lances jogados
-fn handle_position_command(board: &mut Board, commands: &[&str]) -> u16 {
+fn handle_position_command(board: &mut Board, commands: &[&str], tt: &mut TranspositionTable) -> u16 {
     let mut move_start_index = 0;
     let mut moves_count = 0u16;
 
     if commands.get(1) == Some(&"startpos") {
+        // DETECTA NOVA PARTIDA - limpa tudo!
+        reset_engine_between_games(tt);
         *board = Board::new();
         move_start_index = 2;
     } else if commands.get(1) == Some(&"fen") {
@@ -416,13 +451,13 @@ fn handle_go_command(board: &Board, tt: &mut TranspositionTable, opening_book: &
     if use_book && is_in_opening_phase(board) {
         if let Some((book_move, opening_name)) = opening_book.get_move(board) {
             // Usa movimento do livro de aberturas
-            println!("info string Usando livro: {}", opening_name);
+            println!("info string Opening book: {}", opening_name);
             println!("bestmove {}", book_move);
             use std::io::{self, Write};
             io::stdout().flush().ok();
             return;
         } else {
-            println!("info string Saindo do livro de aberturas - calculando...");
+            println!("info string Out of opening book");
         }
     }
 
@@ -548,56 +583,123 @@ fn handle_profile_command(commands: &[&str]) {
 
 /// Executa benchmarks para descobrir gargalos
 fn handle_benchmark_command(board: &Board) {
-    println!("info string Iniciando benchmark para descobrir gargalos...");
+    println!("info string Starting performance benchmark...");
     
     // Limpa estatísticas anteriores
     PROFILER.clear();
     
     // Benchmark 1: Geração de movimentos
     let iterations = 1000;
-    println!("info string Benchmark: Geração de movimentos ({} iterações)", iterations);
+    println!("info string Running move generation benchmark ({} iterations)", iterations);
     let start = Instant::now();
     for _ in 0..iterations {
         let _moves = board.generate_legal_moves();
     }
     let move_gen_time = start.elapsed();
-    println!("info string   Geração de movimentos: {}μs por chamada", 
+    println!("info string   Move generation: {}μs per call", 
              move_gen_time.as_micros() / iterations);
     
     // Benchmark 2: Avaliação de posição
-    println!("info string Benchmark: Avaliação de posição ({} iterações)", iterations);
+    println!("info string Running position evaluation benchmark ({} iterations)", iterations);
     let start = Instant::now();
     for _ in 0..iterations {
         let _eval = evaluation::evaluate(board);
     }
     let eval_time = start.elapsed();
-    println!("info string   Avaliação: {}μs por chamada", 
+    println!("info string   Position evaluation: {}μs per call", 
              eval_time.as_micros() / iterations);
     
     // Benchmark 3: Busca rápida
     let mut tt = TranspositionTable::new(64); // 64 MB para benchmark
-    println!("info string Benchmark: Busca (profundidade 4)");
+    println!("info string Running search benchmark (depth 4)");
     let start = Instant::now();
     let _result = search::find_best_move_with_time(board, 4, 1000, &mut tt);
     let search_time = start.elapsed();
-    println!("info string   Busca (depth 4): {}ms", search_time.as_millis());
+    println!("info string   Search depth 4: {}ms", search_time.as_millis());
     
-    // Gera relatório final
-    println!("info string === RELATÓRIO DE GARGALOS ===");
-    let report = PROFILER.generate_report();
+    println!("info string Benchmark completed successfully");
+}
+
+/// Comando para debug e verificar estado do motor
+fn handle_debug_command(commands: &[&str], tt: &TranspositionTable) {
+    if commands.len() < 2 {
+        println!("info string Usage: debug [memory|tt|cache|all]");
+        return;
+    }
+
+    match commands[1] {
+        "memory" => {
+            println!("info string === MEMORY DEBUG ===");
+            
+            // Verifica ocupação da TT
+            let sample_size = 1000;
+            let occupied = tt.estimate_occupancy_sample(sample_size);
+            let occupancy_percent = (occupied * 100 / sample_size);
+            println!("info string Hash table occupancy: {}% ({}/{})", 
+                    occupancy_percent, occupied, sample_size);
+            
+            // Verifica cache de mobilidade
+            if let Ok(cache) = motor_xadrez::evaluation::mobility::MOBILITY_CACHE.try_lock() {
+                println!("info string Mobility cache entries: {}", cache.len());
+            } else {
+                println!("info string Mobility cache: locked");
+            }
+        },
+        "tt" => {
+            println!("info string === TRANSPOSITION TABLE DEBUG ===");
+            let sample_size = 2000;
+            let occupied = tt.estimate_occupancy_sample(sample_size);
+            let occupancy_percent = (occupied * 100 / sample_size);
+            println!("info string TT size: {} entries", tt.size);
+            println!("info string TT occupancy: {}% ({}/{})", 
+                    occupancy_percent, occupied, sample_size);
+            println!("info string TT memory: ~{} MB", 
+                    (tt.size * std::mem::size_of::<motor_xadrez::transposition::TTEntry>()) / (1024 * 1024));
+        },
+        "cache" => {
+            println!("info string === CACHE DEBUG ===");
+            
+            // Mobility cache
+            if let Ok(cache) = motor_xadrez::evaluation::mobility::MOBILITY_CACHE.try_lock() {
+                println!("info string Mobility cache: {} entries", cache.len());
+                println!("info string Mobility cache capacity: {}", cache.capacity());
+            }
+            
+            // Evaluation cache
+            let eval_stats = motor_xadrez::evaluation::cache::get_cache_stats();
+            println!("info string Evaluation cache: {}", eval_stats);
+        },
+        "all" => {
+            handle_debug_command(&["debug", "memory"], tt);
+            handle_debug_command(&["debug", "cache"], tt);
+        },
+        _ => {
+            println!("info string Unknown debug command: {}", commands[1]);
+        }
+    }
+}
+
+/// Comando para mostrar status geral do motor
+fn handle_status_command(tt: &TranspositionTable) {
+    println!("info string === MotorXadrez STATUS ===");
     
-    // Extrai e mostra apenas as principais métricas
-    for line in report.lines() {
-        if line.contains("PRINCIPAIS GARGALOS") || 
-           line.contains("FUNÇÕES INEFICIENTES") ||
-           line.contains("💡") || 
-           line.contains("⚠️") ||
-           (line.contains("ms") && line.contains("│")) {
-            println!("info string {}", line);
+    // TT Status
+    let sample_size = 1000;
+    let occupied = tt.estimate_occupancy_sample(sample_size);
+    let occupancy_percent = (occupied * 100 / sample_size);
+    println!("info string Hash table: {}% full", occupancy_percent);
+    
+    // Cache Status
+    if let Ok(cache) = motor_xadrez::evaluation::mobility::MOBILITY_CACHE.try_lock() {
+        if cache.len() == 0 {
+            println!("info string Mobility cache: CLEAN");
+        } else {
+            println!("info string Mobility cache: {} entries", cache.len());
         }
     }
     
-    println!("info string Benchmark concluído. Use 'profile save benchmark.txt' para salvar detalhes.");
+    // Memory status
+    println!("info string Engine ready for new game");
 }
 
 /// Manipula comandos de cache de avaliação
@@ -610,11 +712,11 @@ fn handle_cache_command(commands: &[&str]) {
     match commands[1] {
         "stats" => {
             let stats = motor_xadrez::evaluation::cache::get_cache_stats();
-            println!("info string {}", stats);
+            println!("info string Cache statistics: {}", stats);
         },
         "clear" => {
             motor_xadrez::evaluation::cache::clear_evaluation_cache();
-            println!("info string Cache de avaliação limpo");
+            println!("info string Evaluation cache cleared");
         },
         _ => {
             println!("info string Comando de cache desconhecido: {}", commands[1]);

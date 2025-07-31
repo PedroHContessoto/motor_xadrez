@@ -37,7 +37,7 @@ impl TTEntry {
 // A Tabela de Transposição em si
 pub struct TranspositionTable {
     entries: Vec<TTEntry>,
-    size: usize,
+    pub size: usize,
 }
 
 impl TranspositionTable {
@@ -94,5 +94,29 @@ impl TranspositionTable {
         for entry in &mut self.entries {
             *entry = TTEntry::empty();
         }
+    }
+
+    /// Reset entre partidas - limpa TT completamente
+    pub fn reset_between_games(&mut self) {
+        self.clear();
+        println!("info string Hash table cleared ({} entries)", self.size);
+    }
+
+    /// Estima ocupação da tabela amostrando entradas
+    pub fn estimate_occupancy_sample(&self, sample_size: usize) -> usize {
+        if self.size == 0 || sample_size == 0 {
+            return 0;
+        }
+        
+        let step = self.size / sample_size.min(self.size);
+        let mut occupied_count = 0;
+        
+        for i in (0..self.size).step_by(step.max(1)) {
+            if i < self.size && self.entries[i].key != 0 {
+                occupied_count += 1;
+            }
+        }
+        
+        occupied_count
     }
 }

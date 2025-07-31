@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 // Cache para mobility evaluation
 lazy_static::lazy_static! {
-    static ref MOBILITY_CACHE: Mutex<HashMap<(u64, Color), i32>> = 
+    pub static ref MOBILITY_CACHE: Mutex<HashMap<(u64, Color), i32>> = 
         Mutex::new(HashMap::with_capacity(8000));
 }
 
@@ -175,6 +175,17 @@ pub fn evaluate_mobility(board: &Board, color: Color) -> i32 {
     }
     
     mobility_score
+}
+
+/// Limpa o cache de mobilidade entre partidas
+pub fn reset_mobility_cache() {
+    if let Ok(mut cache) = MOBILITY_CACHE.try_lock() {
+        let cache_size = cache.len();
+        cache.clear();
+        if cache_size > 0 {
+            println!("info string Mobility cache cleared ({} entries)", cache_size);
+        }
+    }
 }
 
 /// Função principal de avaliação de mobilidade modular

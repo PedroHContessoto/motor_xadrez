@@ -277,17 +277,8 @@ fn pvs_search_internal(
         // === SISTEMA DE EXTENSÕES COM ORÇAMENTO CONTROLADO ===
         
         // Define orçamento máximo baseado na profundidade atual
-        let extension_budget = if ply > 25 {
-            0 // Sem extensões em PLY muito alto
-        } else if ply > 20 {
-            1 // Orçamento mínimo
-        } else if ply > 15 {
-            2 // Orçamento baixo
-        } else if ply > 10 {
-            3 // Orçamento médio
-        } else {
-            4 // Orçamento alto apenas em PLY baixo
-        };
+        // DRASTICAMENTE LIMITADO PARA DEBUG
+        let extension_budget = 0; // SEM EXTENSÕES PARA DEBUG
         
         // Calcula extensões por prioridade (não acumula, escolhe a melhor)
         let mut extension_candidates = Vec::new();

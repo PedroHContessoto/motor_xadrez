@@ -75,42 +75,39 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
     });
     
     // === SISTEMA DE GESTÃO DE EMPATE/VITÓRIA ===
-    let draw_win_manager = DrawWinManager::new();
+    // COMPLETAMENTE DESABILITADO PARA DEBUG
     let initial_eval = evaluation::evaluate_with_depth(board, 0); // Root evaluation
-    let draw_context = DrawDecisionContext::new(board, initial_eval);
-    let draw_strategy = profile!("draw_win_decision", {
-        draw_win_manager.evaluate_draw_decision(board, &draw_context)
-    });
     
     // === SISTEMA DE CONVERSÃO DE VITÓRIA ===
-    let mut victory_system = VictoryConversionSystem::new();
-    let mut winning_plan = if initial_eval > 350 {
-        // Posição ganhadora (3.5+ peões) - cria plano de conversão
-        Some(profile!("victory_plan_creation", {
-            victory_system.evaluate_winning_plan(board, initial_eval)
-        }))
-    } else {
-        None
-    };
+    // COMENTADO PARA DEBUG
+    // let mut victory_system = VictoryConversionSystem::new();
+    // let mut winning_plan = if initial_eval > 350 {
+    //     // Posição ganhadora (3.5+ peões) - cria plano de conversão
+    //     Some(profile!("victory_plan_creation", {
+    //         victory_system.evaluate_winning_plan(board, initial_eval)
+    //     }))
+    // } else {
+    //     None
+    // };
     
     // === DETECÇÃO RÁPIDA DE MATE (APENAS EM POSIÇÕES CRÍTICAS) ===
-    // Só busca mate se realmente justificado (vantagem >1000cp ou oponente em xeque)
-    if initial_eval > 1000 || board.is_king_in_check(!board.to_move) {
-        if let Some(mate_sequence) = profile!("mate_detection", {
-            victory_system.quick_mate_detection(board, 10)
-        }) {
-            // Validação adicional: verifica se realmente é mate forçado
-            if mate_sequence.mate_in <= 10 && profile!("mate_sequence_validation", {
-                is_forced_mate_sequence(board, &mate_sequence.moves)
-            }) {
-                count!("mates_found");
-                println!("info string MATE DETECTADO em {} movimentos!", mate_sequence.mate_in);
-                if let Some(first_move) = mate_sequence.moves.first() {
-                    return Some(*first_move); // Só retorna o movimento, não a tupla
-                }
-            }
-        }
-    }
+    // COMENTADO PARA DEBUG
+    // if initial_eval > 1000 || board.is_king_in_check(!board.to_move) {
+    //     if let Some(mate_sequence) = profile!("mate_detection", {
+    //         victory_system.quick_mate_detection(board, 10)
+    //     }) {
+    //         // Validação adicional: verifica se realmente é mate forçado
+    //         if mate_sequence.mate_in <= 10 && profile!("mate_sequence_validation", {
+    //             is_forced_mate_sequence(board, &mate_sequence.moves)
+    //         }) {
+    //             count!("mates_found");
+    //             println!("info string Forced mate in {} moves found", mate_sequence.mate_in);
+    //             if let Some(first_move) = mate_sequence.moves.first() {
+    //                 return Some(*first_move); // Só retorna o movimento, não a tupla
+    //             }
+    //         }
+    //     }
+    // }
     
     // Atualiza limites baseado no tempo adaptativo
     let adapted_soft_limit = (adaptive_time_limit as f64 * 0.6) as u64;
@@ -166,9 +163,10 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
         let mut iteration_score;
         
         // Ajusta janelas baseado na estratégia de empate/vitória
-        let (adjusted_alpha, adjusted_beta) = draw_win_manager.adjust_search_windows(alpha, beta, &draw_strategy);
-        alpha = adjusted_alpha;
-        beta = adjusted_beta;
+        // COMENTADO PARA DEBUG
+        // let (adjusted_alpha, adjusted_beta) = draw_win_manager.adjust_search_windows(alpha, beta, &draw_strategy);
+        // alpha = adjusted_alpha;
+        // beta = adjusted_beta;
         
         // Configura aspiration windows se profundidade suficiente
         if aspiration_enabled && depth >= aspiration_depth_threshold && prev_score != 0 {
@@ -176,9 +174,10 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
             beta = prev_score + window_size;
             
             // Reaplica ajustes de draw/win se necessário
-            let (readjusted_alpha, readjusted_beta) = draw_win_manager.adjust_search_windows(alpha, beta, &draw_strategy);
-            alpha = readjusted_alpha;
-            beta = readjusted_beta;
+            // COMENTADO PARA DEBUG
+            // let (readjusted_alpha, readjusted_beta) = draw_win_manager.adjust_search_windows(alpha, beta, &draw_strategy);
+            // alpha = readjusted_alpha;
+            // beta = readjusted_beta;
         }
         
         // Loop de aspiration windows
@@ -266,9 +265,10 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
                     fallback_score = score;
                     
                     // Atualiza plano de vitória se aplicável
-                    if let Some(ref mut plan) = winning_plan {
-                        plan.update_progress(board);
-                    }
+                    // COMENTADO PARA DEBUG
+                    // if let Some(ref mut plan) = winning_plan {
+                    //     plan.update_progress(board);
+                    // }
                 } else {
                     // Move da TT não é legal, mas ainda podemos usar o score
                     if best_move.is_none() {
@@ -295,11 +295,21 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
                 // Detecção e formatação limpa de mate
                 let score_output = format_mate_score_clean(display_score);
                 
-                // Log principal UCI detalhado e profissional  
-                println!("info depth {} {} nodes {} nps {} time {} pv {}",
-                         depth, score_output, context.nodes_searched, nps, time_ms, pv_string);
+                // UCI standard output format - clean and professional
+                print!("info depth {} {} nodes {} nps {} time {} hashfull {} tbhits {} multipv {}", 
+                       depth, score_output, context.nodes_searched, nps, time_ms, 
+                       calculate_hash_full_permill(&tt), 0, 1);
                 
-                // Log adicional removido para terminal limpo
+                // Add PV if available
+                if !pv_string.is_empty() {
+                    print!(" pv {}", pv_string);
+                }
+                println!();
+                
+                // Additional selective info for complex positions
+                if complexity == PositionComplexity::Tactical || complexity == PositionComplexity::Critical {
+                    println!("info string depth {} tactical position detected", depth);
+                }
 
                 io::stdout().flush().ok();
             }
@@ -332,6 +342,13 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
 // ============================================================================
 // FUNÇÕES AUXILIARES PARA DETECÇÃO DE MATE
 // ============================================================================
+
+/// Calcula hash table occupancy em permille (0-1000)
+fn calculate_hash_full_permill(tt: &TranspositionTable) -> u32 {
+    let sample_size = 1000;
+    let occupied = tt.estimate_occupancy_sample(sample_size);
+    (occupied * 1000 / sample_size) as u32
+}
 
 /// Formata score de mate de forma limpa e profissional
 fn format_mate_score_clean(score: i32) -> String {
