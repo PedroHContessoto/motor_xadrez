@@ -3,15 +3,15 @@ use crate::{board::Board, evaluation, transposition::{TranspositionTable, EntryT
 use super::{SearchContext, quiescence::quiescence_search, ordering::order_moves, see::{see_threshold, see}};
 
 const MATE_VALUE: i32 = 99999;
-const FUTILITY_MARGIN: [i32; 8] = [0, 150, 250, 400, 600, 800, 1000, 1200]; // Mais agressivo
+const FUTILITY_MARGIN: [i32; 8] = [0, 120, 200, 320, 480, 640, 800, 960];
 const REVERSE_FUTILITY_MARGIN: [i32; 8] = [0, 100, 200, 300, 400, 500, 600, 700]; // Mais agressivo
 // === LMR AGRESSIVO E ADAPTATIVO (FÓRMULA LOGARÍTMICA) ===
-const LMR_MIN_DEPTH: u8 = 1; // Mais agressivo - LMR desde profundidade 1
-const LMR_MIN_MOVES: usize = 1; // Mais agressivo - LMR desde o segundo movimento
+const LMR_MIN_DEPTH: u8 = 2; // Mais agressivo - LMR desde profundidade 1
+const LMR_MIN_MOVES: usize = 2; // Mais agressivo - LMR desde o segundo movimento
 const PROBCUT_DEPTH: u8 = 5;
 const PROBCUT_MARGIN: i32 = 200;
-const SINGULAR_EXTENSION_DEPTH: u8 = 6;
-const ASPIRATION_WINDOW: i32 = 25;
+const SINGULAR_EXTENSION_DEPTH: u8 = 4;
+const ASPIRATION_WINDOW: i32 = 20;
 
 /// Principal Variation Search com melhorias para táticas
 pub fn pvs_search(
@@ -959,8 +959,8 @@ fn is_endgame_position(board: &Board) -> bool {
 // ============================================================================
 
 /// Constantes para Singular Extensions
-const SINGULAR_MARGIN: i32 = 64;           // Margem para considerar movimento singular
-const SINGULAR_SEARCH_DEPTH_REDUCTION: u8 = 4; // Aumentado de 3 para 4 - menos agressivo
+const SINGULAR_MARGIN: i32 = 48;           // Margem para considerar movimento singular
+const SINGULAR_SEARCH_DEPTH_REDUCTION: u8 = 3; // Aumentado de 3 para 4 - menos agressivo
 const SINGULAR_MAX_EXTENSION: u8 = 1;      // Extensão máxima
 const MULTICUT_DEPTH: u8 = 8;              // Profundidade mínima para multi-cut
 

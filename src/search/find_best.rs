@@ -142,11 +142,11 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
         
         // Depth limit baseado na complexidade da posição
         let max_safe_depth = match complexity {
-            PositionComplexity::Critical => 16,  // Posições críticas - máxima profundidade
-            PositionComplexity::Tactical => 14,  // Posições táticas - alta profundidade
-            PositionComplexity::Complex => 12,   // Posições complexas - profundidade média-alta
-            PositionComplexity::Normal => 10,    // Posições normais - profundidade normal
-            PositionComplexity::Simple => 8,     // Posições simples - profundidade reduzida
+            PositionComplexity::Critical => 22,   // Era 16 → +6 níveis
+            PositionComplexity::Tactical => 20,   // Era 14 → +6 níveis
+            PositionComplexity::Complex => 18,    // Era 12 → +6 níveis
+            PositionComplexity::Normal => 16,     // Era 10 → +6 níveis
+            PositionComplexity::Simple => 14,     // Era 8 → +6 níveis
         };
         
         if depth > max_safe_depth {
@@ -503,11 +503,11 @@ fn calculate_adaptive_time_management(
     
     // Sistema de multiplicadores dinâmicos conforme proposta
     let multiplier = match complexity {
-        PositionComplexity::Critical => 3.5,  // 250% mais tempo para posições críticas
-        PositionComplexity::Tactical => 2.5,  // 150% mais tempo para posições táticas
-        PositionComplexity::Complex => 2.0,   // 100% mais tempo para posições complexas
-        PositionComplexity::Normal => 1.0,    // Tempo normal
-        PositionComplexity::Simple => 0.7,    // 30% menos tempo para posições simples
+        PositionComplexity::Critical => 4.5,  // Era 3.5 → +28% mais tempo
+        PositionComplexity::Tactical => 3.5,  // Era 2.5 → +40% mais tempo
+        PositionComplexity::Complex => 2.8,   // Era 2.0 → +40% mais tempo
+        PositionComplexity::Normal => 1.2,    // Era 1.0 → +20% mais tempo
+        PositionComplexity::Simple => 0.8,    // Era 0.7 → +14% mais tempo
     };
     
     // Sistema de bônus adaptativo para situações especiais
@@ -823,13 +823,13 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         SearchConfig {
-            time_allocation_factor: 0.4,
-            panic_time_factor: 0.8,
+            time_allocation_factor: 0.5,
+            panic_time_factor: 0.9,
             stable_move_time_reduction: 0.7,
             aspiration_enabled: true,
-            initial_aspiration_window: 25,
+            initial_aspiration_window: 20,
             max_aspiration_window: 500,
-            aspiration_depth_threshold: 4,
+            aspiration_depth_threshold: 3,
             max_depth_tactical: 14,
             max_depth_normal: 9,
             

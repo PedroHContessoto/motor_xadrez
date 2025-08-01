@@ -38,7 +38,7 @@ pub fn evaluate_with_depth(board: &Board, depth: u8) -> i32 {
     count!("cache_misses");
     
     // OTIMIZAÇÃO: Avaliação rápida para nós folha ou profundidade baixa
-    if depth >= 8 { // Nós próximos das folhas (profundidade alta na busca)
+    if depth >= 10 { // Nós próximos das folhas (profundidade alta na busca)
         return evaluate_fast(board);
     }
     
@@ -260,7 +260,7 @@ fn evaluate_color_with_depth(board: &Board, color: Color, game_phase: &game_phas
     });
 
     // PROFUNDIDADE <= 6: Componentes estruturais importantes
-    if depth <= 6 {
+    if depth <= 8 {
         // Estrutura de peões (incluindo passados) - CAP: ±120
         score += profile!("pawn_structure", {
             pawn_structure::evaluate_pawn_structure(board, color).clamp(-120, 120)
@@ -273,7 +273,7 @@ fn evaluate_color_with_depth(board: &Board, color: Color, game_phase: &game_phas
     }
 
     // PROFUNDIDADE <= 4: Componentes táticos (caros)
-    if depth <= 4 {
+    if depth <= 6 {
         // Mobilidade segura - CAP: ±100 (otimizada: 160k calls!)
         if should_perform_mobility_evaluation(board, game_phase) {
             score += profile!("mobility", {
@@ -293,7 +293,7 @@ fn evaluate_color_with_depth(board: &Board, color: Color, game_phase: &game_phas
     }
 
     // PROFUNDIDADE <= 2: Meta-evaluation (muito cara)
-    if depth <= 2 {
+    if depth <= 6 {
         // META-EVALUATION: Análise avançada de vulnerabilidades - CAP: ±60
         if should_perform_meta_evaluation(board, score, game_phase) {
             score += profile!("meta_evaluation", {

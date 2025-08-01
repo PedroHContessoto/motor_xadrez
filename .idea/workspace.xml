@@ -14,13 +14,9 @@
     <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/game_phase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/game_phase.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/king_safety.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/king_safety.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/material.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/material.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/mobility/pawn_mobility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mobility/pawn_mobility.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/pawn_structure.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/pawn_structure.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/threats.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/threats.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/evaluation/utils.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/utils.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/evaluation/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/find_best.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/find_best.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -38,7 +34,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="pelanca4" />
+        <entry key="$PROJECT_DIR$" value="pelanca14" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -76,7 +72,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "pelanca12",
+    "git-widget-placeholder": "pelanca15",
     "ignore.virus.scanning.warn.message": "true",
     "last_opened_file_path": "D:/motor_xadrez",
     "node.js.detected.package.eslint": "true",
