@@ -13,7 +13,6 @@
   <component name="ChangeListManager">
     <list default="true" id="7b58618a-f805-4690-8492-dbb110bc567d" name="Changes" comment="add mate">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/evaluation/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/evaluation/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/search/find_best.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/find_best.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/search/pvs.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search/pvs.rs" afterDir="false" />
@@ -72,7 +71,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "pelanca15",
+    "git-widget-placeholder": "pelanca16",
     "ignore.virus.scanning.warn.message": "true",
     "last_opened_file_path": "D:/motor_xadrez",
     "node.js.detected.package.eslint": "true",

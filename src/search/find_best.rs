@@ -62,7 +62,7 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
     }
     let mut fallback_move = legal_moves[0];
     let mut fallback_score = profile!("evaluation", {
-        evaluation::evaluate_with_depth(board, 0) // Root node - avaliação completa
+        evaluation::evaluate_ultra_robust(board) // Root node - avaliação ultra-robusta
     });
 
     // === SISTEMA DE GESTÃO DE TEMPO ADAPTATIVO APRIMORADO ===
@@ -76,7 +76,7 @@ pub fn find_best_move_single_thread(board: &Board, max_depth: u8, mut max_time_m
     
     // === SISTEMA DE GESTÃO DE EMPATE/VITÓRIA ===
     // COMPLETAMENTE DESABILITADO PARA DEBUG
-    let initial_eval = evaluation::evaluate_with_depth(board, 0); // Root evaluation
+    let initial_eval = evaluation::evaluate_ultra_robust(board); // Root evaluation - ultra-robusta
     
     // === SISTEMA DE CONVERSÃO DE VITÓRIA ===
     // COMENTADO PARA DEBUG
@@ -557,7 +557,7 @@ fn calculate_special_bonus(board: &Board, complexity: PositionComplexity) -> u64
             }
             
             // Posições de mate detectadas - tempo extra para encontrar sequência precisa
-            let eval = crate::evaluation::evaluate_with_depth(board, 0);
+            let eval = crate::evaluation::evaluate_ultra_robust(board);
             if eval.abs() > 5000 {  // Likely mate position
                 bonus += 4000; // 4 segundos para calcular mate preciso
             }

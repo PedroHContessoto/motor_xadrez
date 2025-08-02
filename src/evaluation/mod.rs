@@ -20,7 +20,7 @@ use endgame::{EndgameEvaluator, EndgameEvaluation};
 
 /// Função principal de avaliação (interface pública)
 pub fn evaluate(board: &Board) -> i32 {
-    evaluate_with_depth(board, 0) // Profundidade 0 = avaliação completa (compatibilidade)
+    evaluate_ultra_robust(board) // Profundidade 0 = avaliação completa (compatibilidade)
 }
 
 /// Avaliação com lazy loading baseado na profundidade de busca
@@ -547,4 +547,342 @@ fn evaluate_endgame_specialized(board: &Board) -> Option<EndgameEvaluation> {
     }
     
     ENDGAME_EVALUATOR.evaluate(board)
+}
+
+// ============================================================================
+// AVALIAÇÃO ULTRA-ROBUSTA - COMBINA TODOS OS MÉTODOS DISPONÍVEIS
+// ============================================================================
+
+/// **AVALIAÇÃO ULTRA-ROBUSTA** - A mais completa e precisa possível
+/// 
+/// Esta função combina TODOS os métodos de avaliação disponíveis para
+/// fornecer a análise mais profunda e precisa da posição.
+/// 
+/// COMPONENTES INCLUÍDOS:
+/// - Material + PST (base)
+/// - Estrutura de peões completa
+/// - Segurança do rei avançada
+/// - Mobilidade de todas as peças + coordenação
+/// - Detecção completa de ameaças táticas
+/// - Meta-avaliação de vulnerabilidades
+/// - Avaliação de finais especializada
+/// - Detecção de padrões de mate
+/// - Análise de tempo/iniciativa
+/// - Safety nets contra avaliações extremas
+/// 
+/// **USO**: Para análise crítica, debug, ou quando precisão máxima é necessária
+/// **CUSTO**: ~10-20x mais caro que evaluate_with_depth()
+pub fn evaluate_ultra_robust(board: &Board) -> i32 {
+    count!("ultra_robust_evaluations");
+    let start_time = std::time::Instant::now();
+    
+    let game_phase = profile!("game_phase_detection", {
+        game_phase::detect_game_phase(board)
+    });
+
+    // FASE 1: AVALIAÇÃO COMPLETA POR COR (SEM LAZY EVALUATION)
+    let white_score = profile!("evaluate_ultra_white", {
+        evaluate_color_ultra_robust(board, Color::White, &game_phase)
+    });
+    let black_score = profile!("evaluate_ultra_black", {
+        evaluate_color_ultra_robust(board, Color::Black, &game_phase)
+    });
+
+    let mut final_score = white_score - black_score;
+    
+    // FASE 2: AVALIAÇÕES ESPECIALIZADAS AVANÇADAS
+    
+    // Finais especializados (sempre aplicado)
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    if total_pieces <= 16 {
+        if let Some(endgame_eval) = profile!("endgame_ultra", {
+            evaluate_endgame_specialized(board)
+        }) {
+            if endgame_eval.is_theoretical {
+                return endgame_eval.score; // Final teórico tem precedência absoluta
+            }
+            final_score += endgame_eval.score / 2; // Maior peso que na versão normal
+        }
+    }
+
+    // Detecção de mate completa (sempre aplicado)
+    final_score += profile!("mate_detection_ultra", {
+        let mate_eval = mate::MateEvaluator::new();
+        mate_eval.evaluate_mate_potential(board, board.to_move)
+    });
+
+    // Tempo/Iniciativa (sempre aplicado, não apenas em posições equilibradas)
+    final_score += profile!("tempo_ultra", {
+        evaluate_tempo_comprehensive(board)
+    });
+
+    // FASE 3: VALIDAÇÕES E SAFETY NETS APRIMORADOS
+    
+    // Material Safety Net mais rigoroso
+    final_score = profile!("safety_net_ultra", {
+        apply_ultra_material_safety_net(board, final_score)
+    });
+
+    // Validação de consistência interna
+    final_score = profile!("consistency_check", {
+        validate_evaluation_consistency(board, final_score)
+    });
+
+    // FASE 4: AJUSTE FINAL
+    let final_eval = if board.to_move == Color::White {
+        final_score
+    } else {
+        -final_score
+    };
+    
+    // Log para debugging (apenas em modo debug)
+    #[cfg(debug_assertions)]
+    {
+        let duration = start_time.elapsed();
+        if duration.as_millis() > 10 {
+            println!("Ultra-robust evaluation took {}ms", duration.as_millis());
+        }
+    }
+    
+    final_eval
+}
+
+/// Avaliação ultra-robusta por cor (sem lazy evaluation)
+fn evaluate_color_ultra_robust(board: &Board, color: Color, game_phase: &game_phase::GamePhase) -> i32 {
+    let mut score = 0;
+
+    // SEMPRE: Todos os componentes principais
+    score += profile!("material_pst_ultra", {
+        material::evaluate_material_and_pst(board, color, game_phase)
+    });
+
+    score += profile!("pawn_structure_ultra", {
+        pawn_structure::evaluate_pawn_structure(board, color).clamp(-150, 150) // Limite aumentado
+    });
+
+    score += profile!("king_safety_ultra", {
+        king_safety::evaluate_king_safety(board, color, game_phase).clamp(-200, 200) // Limite aumentado
+    });
+
+    // Mobilidade SEMPRE completa
+    score += profile!("mobility_ultra", {
+        mobility::evaluate_mobility(board, color).clamp(-120, 120) // Limite aumentado
+    });
+
+    // Ameaças SEMPRE avaliadas
+    score += profile!("threats_ultra", {
+        threats::evaluate_threats(board, color).clamp(-100, 100) // Limite aumentado
+    });
+
+    // Meta-avaliação SEMPRE aplicada
+    score += profile!("meta_eval_ultra", {
+        meta_evaluation::meta_evaluate_position(board, color).clamp(-80, 80) // Limite aumentado
+    });
+
+    // SEMPRE: Avaliações específicas por fase
+    match game_phase {
+        game_phase::GamePhase::Opening => {
+            score += evaluate_development_ultra(board, color);
+        },
+        game_phase::GamePhase::EarlyMiddlegame | 
+        game_phase::GamePhase::Middlegame | 
+        game_phase::GamePhase::LateMiddlegame => {
+            score += evaluate_middlegame_ultra(board, color);
+        },
+        game_phase::GamePhase::EarlyEndgame | 
+        game_phase::GamePhase::Endgame | 
+        game_phase::GamePhase::LateEndgame | 
+        game_phase::GamePhase::PureEndgame | 
+        game_phase::GamePhase::TheoreticalEndgame => {
+            score += evaluate_endgame_ultra(board, color);
+        },
+    }
+
+    score
+}
+
+/// Desenvolvimento ultra-detalhado para abertura
+fn evaluate_development_ultra(board: &Board, color: Color) -> i32 {
+    let mut score = evaluate_development(board, color);
+    
+    // Análise adicional de desenvolvimento
+    let pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    
+    // Penaliza desenvolvimento prematuro da rainha
+    let queens = board.queens & pieces;
+    if queens != 0 {
+        let queen_sq = queens.trailing_zeros() as u8;
+        let queen_rank = queen_sq / 8;
+        let ideal_rank = if color == Color::White { 0 } else { 7 };
+        
+        if queen_rank != ideal_rank {
+            let moves_made = (queen_rank as i32 - ideal_rank as i32).abs();
+            if moves_made >= 2 {
+                score -= moves_made * 25; // Penaliza desenvolvimento prematuro da rainha
+            }
+        }
+    }
+    
+    // Bônus por controle do centro na abertura
+    let center_squares = [27, 28, 35, 36]; // d4, e4, d5, e5
+    for &sq in &center_squares {
+        if board.is_square_attacked_by(sq, color) {
+            score += 15;
+        }
+    }
+    
+    score
+}
+
+/// Avaliação específica para middlegame
+fn evaluate_middlegame_ultra(board: &Board, color: Color) -> i32 {
+    let mut score = 0;
+    
+    // Coordenação de peças no middlegame
+    let mobility_context = mobility::MobilityContext::new(board, color);
+    score += mobility::coordination::evaluate_piece_coordination(&mobility_context);
+    
+    // Avaliação de sacrifícios posicionais potenciais
+    score += evaluate_positional_sacrifices(board, color);
+    
+    score
+}
+
+/// Avaliação específica para endgame
+fn evaluate_endgame_ultra(board: &Board, color: Color) -> i32 {
+    let mut score = evaluate_king_activity(board, color);
+    
+    // Atividade do rei mais detalhada
+    score += endgame::patterns::evaluate_king_activity_advanced(board, color);
+    
+    // Padrões de endgame
+    let patterns = endgame::patterns::evaluate_endgame_patterns(board, color);
+    score += patterns.total_score();
+    
+    score
+}
+
+/// Tempo/iniciativa mais abrangente
+fn evaluate_tempo_comprehensive(board: &Board) -> i32 {
+    let basic_tempo = evaluate_tempo_fast(board);
+    
+    // Análise adicional de iniciativa
+    let mut initiative_bonus = 0;
+    
+    // Verifica se o jogador atual tem mais ameaças ativas
+    let our_threats = threats::evaluate_threats(board, board.to_move);
+    let opponent_threats = threats::evaluate_threats(board, !board.to_move);
+    
+    if our_threats > opponent_threats + 20 {
+        initiative_bonus += 25; // Bônus por ter iniciativa clara
+    }
+    
+    // Verifica desenvolvimento relativo
+    let our_development = approximate_mobility(board, board.to_move);
+    let opponent_development = approximate_mobility(board, !board.to_move);
+    
+    if our_development > opponent_development + 10 {
+        initiative_bonus += 15; // Bônus por desenvolvimento superior
+    }
+    
+    (basic_tempo + initiative_bonus).clamp(-75, 75)
+}
+
+/// Avalia potenciais sacrifícios posicionais
+fn evaluate_positional_sacrifices(board: &Board, color: Color) -> i32 {
+    // Implementação simplificada - detecta posições onde sacrifícios podem ser benéficos
+    let mut score = 0;
+    let our_pieces = if color == Color::White { board.white_pieces } else { board.black_pieces };
+    let enemy_pieces = if color == Color::White { board.black_pieces } else { board.white_pieces };
+    
+    // Se temos vantagem de desenvolvimento, sacrifícios podem ser bons
+    let our_developed = (our_pieces & !board.pawns & !board.kings).count_ones();
+    let enemy_developed = (enemy_pieces & !board.pawns & !board.kings).count_ones();
+    
+    if our_developed > enemy_developed + 2 {
+        // Verifica se rei inimigo está vulnerável
+        let enemy_king = board.kings & enemy_pieces;
+        if enemy_king != 0 {
+            let king_sq = enemy_king.trailing_zeros() as u8;
+            let attackers = count_attackers_near_king(board, king_sq, color);
+            
+            if attackers >= 2 {
+                score += 30; // Posição favorável para sacrifícios
+            }
+        }
+    }
+    
+    score
+}
+
+/// Conta atacantes próximos ao rei
+fn count_attackers_near_king(board: &Board, king_sq: u8, attacking_color: Color) -> i32 {
+    let king_zone = crate::moves::king::get_king_attacks_lookup(king_sq) | (1u64 << king_sq);
+    let mut attackers = 0;
+    
+    let mut zone_bb = king_zone;
+    while zone_bb != 0 {
+        let sq = zone_bb.trailing_zeros() as u8;
+        zone_bb &= zone_bb - 1;
+        
+        if board.is_square_attacked_by(sq, attacking_color) {
+            attackers += 1;
+        }
+    }
+    
+    attackers
+}
+
+/// Safety net ultra-rigoroso
+fn apply_ultra_material_safety_net(board: &Board, mut score: i32) -> i32 {
+    let white_material = calculate_raw_material(board, Color::White);
+    let black_material = calculate_raw_material(board, Color::Black);
+    let material_diff = white_material - black_material;
+    
+    let score_vs_material_diff = score - material_diff;
+    
+    // Mais rigoroso: 100cp em vez de 150cp
+    if score_vs_material_diff.abs() > 100 {
+        let penalty = (score_vs_material_diff.abs() - 100) / 2;
+        
+        if score_vs_material_diff > 0 {
+            score -= penalty;
+        } else {
+            score += penalty;
+        }
+    }
+    
+    // Safety check para diferenças materiais extremas
+    if material_diff.abs() > 250 {
+        let material_dominance = material_diff.signum();
+        let max_positional_compensation = 150; // Reduzido de 200
+        
+        if material_dominance > 0 && score < material_diff - max_positional_compensation {
+            score = material_diff - max_positional_compensation;
+        } else if material_dominance < 0 && score > material_diff + max_positional_compensation {
+            score = material_diff + max_positional_compensation;
+        }
+    }
+    
+    score
+}
+
+/// Validação de consistência da avaliação
+fn validate_evaluation_consistency(board: &Board, score: i32) -> i32 {
+    // Verifica se a avaliação faz sentido dado o contexto da posição
+    let total_pieces = (board.white_pieces | board.black_pieces).count_ones();
+    
+    // Em finais simples, limita avaliações extremas
+    if total_pieces <= 8 && score.abs() > 400 {
+        let max_endgame_eval = 350;
+        return score.signum() * max_endgame_eval;
+    }
+    
+    // Em posições complexas, permite mais variação
+    if total_pieces >= 24 && score.abs() > 800 {
+        let max_complex_eval = 750;
+        return score.signum() * max_complex_eval;
+    }
+    
+    score
 }

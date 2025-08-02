@@ -43,7 +43,11 @@ fn pvs_search_internal(
 ) -> i32 {
     // Proteção absoluta contra explosão de nós (reduzido de 50 para 40)
     if ply > 40 {
-        return crate::evaluation::evaluate(board);
+        return if ply == 0 { 
+            crate::evaluation::evaluate_ultra_robust(board) 
+        } else { 
+            crate::evaluation::evaluate(board) 
+        };
     }
     
     context.nodes_searched += 1;
@@ -59,7 +63,11 @@ fn pvs_search_internal(
     }
 
     if depth > 64 {
-        return evaluation::evaluate_with_depth(board, depth.saturating_add(ply as u8));
+        return if ply == 0 {
+            evaluation::evaluate_ultra_robust(board)
+        } else {
+            evaluation::evaluate_with_depth(board, depth.saturating_add(ply as u8))
+        };
     }
 
     let original_alpha = alpha;
@@ -100,7 +108,15 @@ fn pvs_search_internal(
     }
 
     let in_check = board.is_king_in_check(board.to_move);
-    let static_eval = if !in_check { evaluation::evaluate_with_depth(board, depth.saturating_add(ply as u8)) } else { -MATE_VALUE / 2 };
+    let static_eval = if !in_check { 
+        if ply == 0 {
+            evaluation::evaluate_ultra_robust(board)
+        } else {
+            evaluation::evaluate_with_depth(board, depth.saturating_add(ply as u8))
+        }
+    } else { 
+        -MATE_VALUE / 2 
+    };
 
     // Reverse Futility Pruning (Static Null Move Pruning)
     if !is_pv_node && !in_check && depth <= 7 && static_eval != -MATE_VALUE / 2 {
@@ -292,48 +308,6 @@ fn pvs_search_internal(
         if gives_check && ply <= 25 {
             extension_candidates.push(("check", 1));
         }
-        
-        // DESABILITADAS TEMPORARIAMENTE - REINTRODUZIR GRADUALMENTE:
-        // // 1. PRIORIDADE MÁXIMA: Ameaças de mate relaxadas (conforme análise)
-        // if gives_check && (in_check || depth <= 3) && ply <= 15 {
-        //     extension_candidates.push(("mate_threat", 2));
-        // }
-        // 
-        // // 2. PRIORIDADE ALTA: TT move singular
-        // if Some(*mv) == tt_move && singular_extension > 0 {
-        //     extension_candidates.push(("singular", singular_extension as i32));
-        // }
-        
-        // 3.5. PRIORIDADE ALTA: Posições próximas de mate (nova)
-        // let static_eval = crate::evaluation::evaluate_with_depth(board, depth);
-        // if static_eval.abs() > 8000 && ply <= 18 {
-        //     extension_candidates.push(("near_mate", 1));
-        // }
-        
-        // 4. PRIORIDADE MÉDIA: Promoções
-        // if mv.promotion.is_some() {
-        //     extension_candidates.push(("promotion", 1));
-        // }
-        
-        // 5. EXTENSÕES TÁTICAS AVANÇADAS
-        // if is_recapture(board, *mv, context) {
-        //     extension_candidates.push(("recapture", 2)); // Aumentado
-        // }
-        
-        // 6. CAPTURAS TÁTICAS COM SEE POSITIVO
-        // if is_capture && crate::search::see::see(board, *mv) >= 0 && ply <= 25 {
-        //     extension_candidates.push(("tactical_capture", 2));
-        // }
-        
-        // 7. DISCOVERED ATTACKS - usando função existente de threats.rs
-        // if creates_discovered_attack_potential(board, *mv) && ply <= 20 {
-        //     extension_candidates.push(("discovered_attack", 3));
-        // }
-        //
-        // 8. FORKS E PINS - usando avaliação tática existente
-        // if creates_tactical_threat(board, *mv) && ply <= 20 {
-        //     extension_candidates.push(("tactical_threat", 2));
-        // }
         
         // Escolhe a extensão de maior prioridade que cabe no orçamento
         let mut extension = 0i32;
